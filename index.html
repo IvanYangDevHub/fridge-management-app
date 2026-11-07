@@ -1,0 +1,145 @@
+<!doctype html>
+<html lang="zh-Hant">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#edf7ee" />
+    <title>鮮日子 | 冰箱管理</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;600;700&family=Playfair+Display:wght@600;700&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <main class="app-shell">
+      <header class="hero">
+        <div>
+          <p class="eyebrow">SMART FRIDGE</p>
+          <h1>鮮日子</h1>
+          <p class="hero-copy">把冰箱裡的每一份新鮮，好好記下來。</p>
+        </div>
+        <div class="today" aria-label="今天日期">
+          <span id="today-weekday"></span>
+          <strong id="today-date"></strong>
+        </div>
+      </header>
+
+      <section class="summary" aria-label="庫存摘要">
+        <article>
+          <span>目前食材</span>
+          <strong id="item-count">0</strong>
+          <small>項</small>
+        </article>
+        <article>
+          <span>即將到期</span>
+          <strong id="expiring-count">0</strong>
+          <small>項</small>
+        </article>
+      </section>
+
+      <section class="add-panel" aria-labelledby="add-title">
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow">ADD ITEM</p>
+            <h2 id="add-title">加入食材</h2>
+          </div>
+          <span class="leaf" aria-hidden="true">✦</span>
+        </div>
+        <form id="food-form">
+          <div class="field field-name">
+            <label for="name">食材名稱</label>
+            <input id="name" name="name" type="text" placeholder="例如：鮮奶" maxlength="60" required autofocus />
+          </div>
+          <div class="field">
+            <label for="quantity">數量</label>
+            <input id="quantity" name="quantity" type="number" min="0.1" step="0.1" value="1" required />
+          </div>
+          <div class="field">
+            <label for="unit">單位</label>
+            <select id="unit" name="unit">
+              <option value="份">份</option>
+              <option value="個">個</option>
+              <option value="包">包</option>
+              <option value="瓶">瓶</option>
+              <option value="盒">盒</option>
+              <option value="公克">公克</option>
+            </select>
+          </div>
+          <div class="field">
+            <label for="location">保存位置</label>
+            <select id="location" name="location">
+              <option value="fridge">冷藏</option>
+              <option value="freezer">冷凍</option>
+              <option value="pantry">常溫</option>
+            </select>
+          </div>
+          <div class="field">
+            <label for="category">分類</label>
+            <select id="category" name="category">
+              <option value="other">其他</option>
+              <option value="vegetable">蔬菜</option>
+              <option value="fruit">水果</option>
+              <option value="protein">肉蛋豆</option>
+              <option value="dairy">乳製品</option>
+              <option value="staple">主食</option>
+              <option value="seasoning">調味料</option>
+            </select>
+          </div>
+          <div class="field">
+            <label for="expiresAt">到期日 <span>選填</span></label>
+            <input id="expiresAt" name="expiresAt" type="date" />
+          </div>
+          <p id="shelf-life-hint" class="shelf-life-hint" aria-live="polite">輸入食材名稱後，會提供保存期限建議。</p>
+          <button class="primary-button" type="submit">加入清單 <span aria-hidden="true">→</span></button>
+        </form>
+      </section>
+
+      <section class="inventory" aria-labelledby="inventory-title">
+        <div class="section-heading inventory-heading">
+          <div>
+            <p class="eyebrow">INVENTORY</p>
+            <h2 id="inventory-title">冰箱庫存</h2>
+          </div>
+          <div class="filters" role="group" aria-label="保存位置篩選">
+            <button class="filter active" type="button" data-filter="all">全部</button>
+            <button class="filter" type="button" data-filter="fridge">冷藏</button>
+            <button class="filter" type="button" data-filter="freezer">冷凍</button>
+            <button class="filter" type="button" data-filter="pantry">常溫</button>
+          </div>
+        </div>
+        <ul id="food-list" class="food-list" aria-live="polite"></ul>
+        <div id="empty-state" class="empty-state">
+          <span aria-hidden="true">🥬</span>
+          <h3>冰箱還是空的</h3>
+          <p>從上方加入第一項食材吧。</p>
+        </div>
+      </section>
+
+      <section class="action-grid" aria-label="今日行動">
+        <article class="recipe-panel">
+          <div class="section-heading">
+            <div>
+              <p class="eyebrow">COOK TONIGHT</p>
+              <h2>今晚吃什麼</h2>
+            </div>
+            <span class="leaf" aria-hidden="true">✦</span>
+          </div>
+          <div id="recipe-card" class="recipe-card"></div>
+        </article>
+        <article class="shopping-panel">
+          <div class="section-heading">
+            <div>
+              <p class="eyebrow">SHOPPING LIST</p>
+              <h2>採買清單</h2>
+            </div>
+            <button id="line-draft-button" class="quiet-button" type="button">複製 LINE 草稿</button>
+          </div>
+          <ul id="shopping-list" class="shopping-list"></ul>
+          <p id="shopping-empty" class="small-empty">料理缺少的材料會出現在這裡。</p>
+        </article>
+      </section>
+    </main>
+    <div id="toast" class="toast" role="status" aria-live="polite"></div>
+    <script src="app.js"></script>
+  </body>
+</html>
