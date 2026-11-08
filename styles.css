@@ -88,6 +88,10 @@ input:focus, select:focus { border-color: var(--green); box-shadow: 0 0 0 3px #d
 .shopping-item.done span { color: var(--muted); text-decoration: line-through; }
 .remove-shopping { padding: 3px 7px; color: #9a5541; background: transparent; border: 0; font-size: 1rem; }
 .small-empty { margin: 6px 0 0; color: var(--muted); font-size: .86rem; }
+.line-sync { margin-top: 20px; padding: 26px; background: var(--cream); border: 1px solid var(--line); border-radius: 20px; }
+.line-sync p { color: var(--muted); font-size: .86rem; }
+.line-sync form { display: flex; align-items: end; flex-wrap: wrap; }
+.line-sync input { max-width: 260px; }
 
 @media (max-width: 840px) { form { grid-template-columns: repeat(3, 1fr); } .field-name { grid-column: span 2; } .action-grid { grid-template-columns: 1fr; } }
 @media (max-width: 560px) { .app-shell { width: min(100% - 24px, 960px); padding-top: 28px; } .hero { margin-bottom: 22px; } .today { min-width: auto; padding: 9px 11px; } .add-panel, .inventory, .recipe-panel, .shopping-panel { padding: 19px; border-radius: 16px; } form { grid-template-columns: repeat(2, 1fr); } .field-name { grid-column: span 2; } .primary-button { grid-column: span 2; } .inventory-heading { align-items: flex-start; flex-direction: column; } .filters { justify-content: flex-start; } .food-item { grid-template-columns: auto 1fr auto; } .expiry-info { grid-column: 2; min-width: 0; text-align: left; } .status { justify-self: start; } .consume-button { grid-column: 2; justify-self: start; } .delete-button { grid-column: 3; grid-row: 1 / span 2; } }
