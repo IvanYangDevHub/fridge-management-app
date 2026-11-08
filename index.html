@@ -138,6 +138,19 @@
           <p id="shopping-empty" class="small-empty">料理缺少的材料會出現在這裡。</p>
         </article>
       </section>
+      <section class="line-sync" aria-labelledby="line-sync-title">
+        <div>
+          <p class="eyebrow">LINE REMINDER</p>
+          <h2 id="line-sync-title">同步到期提醒</h2>
+          <p>輸入家庭配對碼，同步這個瀏覽器的庫存；家人在 LINE 傳送「訂閱 配對碼」即可接收每日提醒。</p>
+        </div>
+        <form id="line-sync-form">
+          <label for="household-code">家庭配對碼</label>
+          <input id="household-code" type="password" required autocomplete="off" />
+          <button class="primary-button" type="submit">同步庫存</button>
+        </form>
+        <p id="line-sync-status" role="status"></p>
+      </section>
     </main>
     <div id="toast" class="toast" role="status" aria-live="polite"></div>
     <script src="app.js"></script>

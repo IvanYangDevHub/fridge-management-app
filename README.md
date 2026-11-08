@@ -1,6 +1,33 @@
 # 鮮日子
 
-零依賴的冰箱食材管理 MVP。資料儲存在使用者瀏覽器的 `localStorage`，不會上傳到伺服器。
+## React 前後端分離版
+
+前端位於 `frontend/`，使用 React、TypeScript 與 Vite；後端是根目錄的 `line-webhook.mjs`，提供 JSON API、LINE Webhook 和每日到期通知。兩者獨立運行，開發時 Vite 將 `/api` 代理到後端。根目錄的原生 `index.html`、`app.js`、`styles.css` 保留作舊版參照。
+
+第一個 PowerShell 視窗：
+
+```powershell
+$env:LINE_CHANNEL_SECRET = '你的 Channel secret'
+$env:LINE_CHANNEL_ACCESS_TOKEN = '你的 Channel access token'
+$env:HOUSEHOLD_CODE = '你的家庭配對碼'
+node line-webhook.mjs
+```
+
+第二個視窗：
+
+```powershell
+cd frontend
+npm install
+npm run dev
+```
+
+開啟 `http://localhost:5173`，輸入配對碼。後端會在 `line-data.json` 保存資料。首次連線且伺服器庫存為空時，可按「匯入舊版瀏覽器資料」。部署時前端可放在靜態網站，將 `/api` 反向代理到後端；LINE Webhook 指向後端的 `/webhook/line`。目前的配對碼只適合單一家庭展示，正式多人使用需加入個人登入與家庭授權。
+
+## LINE Messaging API Webhook
+
+Webhook 接收端已建於 `line-webhook.mjs`。它驗證原始請求的 `x-line-signature`，接受 LINE Console 的空事件測試，並在加入好友或傳送 `ping` 時以 Reply API 回覆。網頁可將庫存同步到伺服器；LINE 訂閱者可查詢到期品項並接收每日提醒。設定與公開 HTTPS 步驟見 [LINE_WEBHOOK.md](LINE_WEBHOOK.md)。
+
+以下是原生 JavaScript 舊版操作說明。React 版以後端資料為準。
 
 目前可操作的功能：食材新增、分類與保存期限建議、到期風險排序、位置篩選、標記用完、刪除、料理建議、缺少材料採買清單，以及可複製的 LINE 提醒草稿。
 

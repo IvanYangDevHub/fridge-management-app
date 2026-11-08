@@ -68,7 +68,31 @@ function loadShoppingItems() {
 
 function saveItems() {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(items));
+  if (sessionStorage.getItem("fresh-days-household-code")) syncInventory();
 }
+
+async function syncInventory() {
+  const code = sessionStorage.getItem("fresh-days-household-code");
+  if (!code) return;
+  const status = document.querySelector("#line-sync-status");
+  try {
+    const response = await fetch("/api/inventory", {
+      method: "POST",
+      headers: { "content-type": "application/json", "x-household-code": code },
+      body: JSON.stringify(items),
+    });
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    status.textContent = "庫存已同步；已訂閱的家人將在需要時收到提醒。";
+  } catch (error) {
+    status.textContent = `同步失敗（${error.message}）。請確認配對碼與伺服器。`;
+  }
+}
+
+document.querySelector("#line-sync-form").addEventListener("submit", (event) => {
+  event.preventDefault();
+  sessionStorage.setItem("fresh-days-household-code", document.querySelector("#household-code").value.trim());
+  syncInventory();
+});
 
 function saveShoppingItems() {
   localStorage.setItem(SHOPPING_STORAGE_KEY, JSON.stringify(shoppingItems));

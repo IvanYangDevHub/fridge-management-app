@@ -1,0 +1,8 @@
+.env
+.env.*
+!.env.example
+node_modules/
+frontend/dist/
+frontend/*.tsbuildinfo
+line-data.json
+line-data.json.tmp
