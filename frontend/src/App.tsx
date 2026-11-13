@@ -87,17 +87,6 @@ export default function App() {
       if (!expiresAt) { const date = new Date(); date.setDate(date.getDate() + rule.days); setExpiresAt(localDate(date)); }
     }
   }
-  async function importOldData() {
-    try {
-      const oldFood = JSON.parse(localStorage.getItem('fresh-days-food-items-v1') || '[]') as FoodItem[];
-      const oldShopping = JSON.parse(localStorage.getItem('fresh-days-shopping-list-v1') || '[]') as ShoppingItem[];
-      if (!Array.isArray(oldFood) || !Array.isArray(oldShopping)) throw new Error('舊資料格式不正確');
-      await api('inventory', code, 'PUT', oldFood);
-      await api('shopping', code, 'PUT', oldShopping);
-      setItems(oldFood); setShopping(oldShopping);
-      setMessage('舊資料已匯入家庭冰箱');
-    } catch (error) { setMessage((error as Error).message); }
-  }
   const activeItems = useMemo(() => items.filter((item) => item.status !== 'consumed'), [items]);
   const visible = useMemo(() => activeItems.filter((item) => filter === 'all' || item.location === filter).sort((a, b) => expiry(a).rank - expiry(b).rank || (a.expiresAt || '9999').localeCompare(b.expiresAt || '9999')), [activeItems, filter]);
   const urgent = useMemo(() => activeItems.filter((item) => expiry(item).rank <= 2), [activeItems]);
@@ -111,7 +100,6 @@ export default function App() {
       <form onSubmit={connect} className="form-grid"><label className="full">家庭配對碼<input type="password" value={codeInput} onChange={(event) => setCodeInput(event.target.value)} required autoComplete="off" /></label><button className="primary" type="submit">連線</button></form>
       <p role="status" className={connected ? 'success' : 'error'}>{message}</p>
       <small>家人在 LINE 傳送「訂閱 配對碼」即可收到每日到期通知。</small>
-      {connected && items.length === 0 && localStorage.getItem('fresh-days-food-items-v1') && <p><button className="secondary" type="button" onClick={() => void importOldData()}>匯入舊版瀏覽器資料</button></p>}
     </section>
     {connected && <>
       <section className="summary"><article>目前食材<strong>{activeItems.length}</strong></article><article>需優先處理<strong>{urgent.length}</strong></article></section>

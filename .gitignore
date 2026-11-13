@@ -4,5 +4,11 @@
 node_modules/
 frontend/dist/
 frontend/*.tsbuildinfo
+backend/**/bin/
+backend/**/obj/
+backend/**/TestResults/
+*.db
+*.db-shm
+*.db-wal
 line-data.json
 line-data.json.tmp
