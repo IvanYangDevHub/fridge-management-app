@@ -137,6 +137,8 @@ npm run build
 
 ## LINE 與部署
 
+DigitalOcean Droplet 的 Docker Compose、Caddy、主機設定、LINE 驗收及更新備份步驟見 [DEPLOY_DIGITALOCEAN.md](DEPLOY_DIGITALOCEAN.md)。
+
 詳細的 LINE Official Account、Channel secret、access token、Webhook URL、驗證與測試流程請見 [LINE_WEBHOOK.md](LINE_WEBHOOK.md)。注意 access token 的有效期及換發；目前服務不會自動換發 token。
 
 部署時，後端需要持續運行、可供 LINE 存取的 HTTPS 網址及持久化 SQLite 儲存空間。設定 `SQLITE_PATH` 指向持久化磁碟，只執行一個後端實例，並安排備份與通知失敗監控。React 可獨立部署為靜態網站，但生產環境仍需將同網域的 `/api` 反向代理至後端；Vite 的開發代理不會自動套用到生產環境。

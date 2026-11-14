@@ -1,0 +1,14 @@
+{$SITE_DOMAIN} {
+	encode zstd gzip
+
+	@backend path /api/* /webhook/line /health
+	handle @backend {
+		reverse_proxy backend:8080
+	}
+
+	handle {
+		root * /srv
+		try_files {path} /index.html
+		file_server
+	}
+}
