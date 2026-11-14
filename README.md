@@ -137,7 +137,7 @@ npm run build
 
 ## LINE 與部署
 
-DigitalOcean Droplet 的部署準備、主機設定、LINE 驗收及更新備份步驟見 [DEPLOY_DIGITALOCEAN.md](DEPLOY_DIGITALOCEAN.md)。該指南所述的 Docker 設定尚未加入專案，須先完成指南第 1 節。
+DigitalOcean Droplet 的 Docker Compose、Caddy、主機設定、LINE 驗收及更新備份步驟見 [DEPLOY_DIGITALOCEAN.md](DEPLOY_DIGITALOCEAN.md)。
 
 詳細的 LINE Official Account、Channel secret、access token、Webhook URL、驗證與測試流程請見 [LINE_WEBHOOK.md](LINE_WEBHOOK.md)。注意 access token 的有效期及換發；目前服務不會自動換發 token。
 

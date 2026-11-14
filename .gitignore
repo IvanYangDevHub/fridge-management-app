@@ -10,5 +10,6 @@ backend/**/TestResults/
 *.db
 *.db-shm
 *.db-wal
+/data/
 line-data.json
 line-data.json.tmp

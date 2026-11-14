@@ -2,15 +2,15 @@
 
 本指南記錄單一家庭展示版的部署方案：一台 Ubuntu Droplet、Docker Compose、React 靜態網站、ASP.NET Core 後端與持久化 SQLite。正式環境從空資料庫開始，不搬移本機資料。將下文的 `freshdays.example.com` 換成你擁有的網域或子網域。
 
-> **目前狀態：尚未加入 Dockerfile、Compose 與 Caddy 設定。** 先完成第 1 節的專案準備並驗證映像檔，再依序操作 Droplet。只把目前的 repository 複製到主機，還不能執行下文的 `docker compose up`。
+專案已包含 Dockerfile、`compose.yaml` 與 Caddy 設定。部署前仍須在本機驗證、準備主機與填入自己的網域及 LINE 憑證。
 
 ## 1. 準備專案部署設定
 
-在 repository 加入後端 Dockerfile、前端 Dockerfile、`compose.yaml`、`Caddyfile` 及適當的 `.dockerignore`：
+repository 已包含後端 Dockerfile、前端 Dockerfile、`compose.yaml`、`frontend/Caddyfile` 及各自的 `.dockerignore`。部署設定如下：
 
 1. 後端以 .NET 10 SDK 映像建置 `backend/src/FreshDays/FreshDays.csproj`，以 .NET 10 ASP.NET runtime 映像執行 `FreshDays.dll`。設定 `ASPNETCORE_URLS=http://0.0.0.0:8080`，只在 Compose 內部開放 `8080`，不要將後端埠對外發布。
 2. 前端以 Node.js 建置：在 `frontend/` 執行 `npm ci` 與 `npm run build`，再將 `frontend/dist/` 放入 Caddy 映像作為網站根目錄。Vite 的 `/api` 開發代理不會隨正式版一起部署。
-3. Caddy 以 `freshdays.example.com` 為站台名稱；將 `/api/*`、`/webhook/line`、`/health` **保留原始路徑**轉送至 `backend:8080`。其他路徑提供前端檔案，找不到檔案時回傳 `index.html`。不要將 `/webhook/line` 導向 React。
+3. Caddy 以 `.env` 的 `SITE_DOMAIN` 為站台名稱；將 `/api/*`、`/webhook/line`、`/health` **保留原始路徑**轉送至 `backend:8080`。其他路徑提供前端檔案，找不到檔案時回傳 `index.html`。不要將 `/webhook/line` 導向 React。
 4. Compose 只讓 Caddy 對外發布 `80`、`443`；將主機 `/opt/freshdays/data` 掛載至後端 `/data`，設定 `SQLITE_PATH=/data/freshdays.db`；持久化 Caddy 的資料目錄以保存 HTTPS 憑證。後端只啟動**一個**實例，避免多個每日提醒背景工作同時執行。
 5. 在本機先驗證後端測試及前端建置：
 
@@ -20,7 +20,7 @@
    npm --prefix frontend run build
    ```
 
-部署設定完成後，再檢查 `docker compose config` 及兩個映像檔能否成功建置。參考 [.NET 容器文件](https://learn.microsoft.com/en-us/aspnet/core/host-and-deploy/docker/building-net-docker-images?view=aspnetcore-10.0)、[Caddy SPA 設定](https://caddyserver.com/docs/caddyfile/patterns)與[Caddy 自動 HTTPS](https://caddyserver.com/docs/automatic-https)。
+再檢查 `docker compose config` 及兩個映像檔能否成功建置。參考 [.NET 容器文件](https://learn.microsoft.com/en-us/aspnet/core/host-and-deploy/docker/building-net-docker-images?view=aspnetcore-10.0)、[Caddy SPA 設定](https://caddyserver.com/docs/caddyfile/patterns)與[Caddy 自動 HTTPS](https://caddyserver.com/docs/automatic-https)。
 
 ## 2. 建立 Droplet、DNS 與防火牆
 
@@ -32,27 +32,26 @@
 ## 3. 在 Droplet 啟動服務
 
 1. 使用 SSH 連入 Droplet，依 [Docker 官方 Ubuntu 安裝步驟](https://docs.docker.com/engine/install/ubuntu/)安裝 Docker Engine、Buildx 與 Compose plugin。執行 `docker compose version` 確認安裝成功。
-2. 將**已包含第 1 節部署設定**的 repository 放在 `/opt/freshdays`，建立 `/opt/freshdays/data`，確認後端容器可寫入該目錄。
-3. 在主機的 `/opt/freshdays/.env` 填入以下值，並設定只有管理者可讀。`.env` 已被本專案的 `.gitignore` 排除；後端不會自行讀取它，必須由 Compose 注入環境變數。
+2. 將 repository 放在 `/opt/freshdays`，建立 `/opt/freshdays/data`，確認後端容器可寫入該目錄。
+3. 在主機的 `/opt/freshdays/.env` 填入以下值，並設定只有管理者可讀。`.env` 已被本專案的 `.gitignore` 排除；後端不會自行讀取它，必須由 Compose 注入環境變數。`SQLITE_PATH` 與 `ASPNETCORE_URLS` 已固定在 Compose 設定中。
 
    ```dotenv
    LINE_CHANNEL_SECRET=<你的 Messaging API Channel secret>
    LINE_CHANNEL_ACCESS_TOKEN=<你的 Messaging API Channel access token>
    HOUSEHOLD_CODE=<自訂的長且隨機的家庭配對碼>
-   SQLITE_PATH=/data/freshdays.db
-   ASPNETCORE_URLS=http://0.0.0.0:8080
+   SITE_DOMAIN=freshdays.example.com
    ```
 
-4. 將 `Caddyfile` 中的 `freshdays.example.com` 換成實際網域。在 `/opt/freshdays` 執行：
+4. 將 `.env` 中的 `SITE_DOMAIN` 換成實際網域。在 `/opt/freshdays` 執行：
 
    ```bash
-   sudo docker compose config
+   sudo docker compose config --quiet
    sudo docker compose up -d --build
    sudo docker compose ps
    sudo docker compose logs --tail=100
    ```
 
-   `docker compose config` 可能在終端機顯示環境變數值；不要將輸出貼到公開地方。若建置或啟動失敗，先依服務名稱查看 `sudo docker compose logs <服務名稱>`。
+   若建置或啟動失敗，先依服務名稱查看 `sudo docker compose logs <服務名稱>`。不要將包含密鑰的設定或日誌貼到公開地方。
 
 ## 4. 驗收網站與 LINE Webhook
 
