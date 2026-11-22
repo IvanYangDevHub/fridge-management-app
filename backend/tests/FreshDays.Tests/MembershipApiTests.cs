@@ -18,9 +18,9 @@ public sealed class MembershipApiTests
         var household = await CreateHousehold(owner, "Home");
         var other = await CreateHousehold(member, "Other home");
         await Admit(owner, member, household, "member");
-        var entry = new[] { new { id = "food", name = "Apples" } };
-        using var saved = await member.PutAsJsonAsync(household + "/inventory", entry);
-        Assert.Equal(HttpStatusCode.NoContent, saved.StatusCode);
+        var entry = new { name = "Apples" };
+        using var saved = await member.PostAsJsonAsync(household + "/inventory", entry);
+        Assert.Equal(HttpStatusCode.Created, saved.StatusCode);
 
         using var departed = await member.DeleteAsync(household + "/members/me");
         Assert.Equal(HttpStatusCode.NoContent, departed.StatusCode);
@@ -29,7 +29,7 @@ public sealed class MembershipApiTests
         {
             Assert.Equal(HttpStatusCode.OK, (await session.GetAsync("/api/auth/session")).StatusCode);
             Assert.Equal(HttpStatusCode.Forbidden, (await session.GetAsync(household + "/inventory")).StatusCode);
-            Assert.Equal(HttpStatusCode.Forbidden, (await session.PutAsJsonAsync(household + "/shopping", Array.Empty<object>())).StatusCode);
+            Assert.Equal(HttpStatusCode.Forbidden, (await session.PostAsJsonAsync(household + "/shopping", new { name = "Rice", completed = false })).StatusCode);
             Assert.Equal(HttpStatusCode.OK, (await session.GetAsync(other + "/inventory")).StatusCode);
             Assert.Single((await session.GetFromJsonAsync<JsonElement>("/api/households")).EnumerateArray());
         }
@@ -114,6 +114,7 @@ public sealed class MembershipApiTests
     {
         await using var app = await TestApp.Start();
         using var owner = await app.SignIn("owner");
+        using var secondOwnerSession = await app.SignIn("owner");
         using var target = await app.SignIn("target");
         var ownerId = await UserId(owner);
         var targetId = await UserId(target);
@@ -121,7 +122,7 @@ public sealed class MembershipApiTests
         await Admit(owner, target, household, "target");
         var targetPath = household + "/members/" + targetId;
 
-        var attempts = await Task.WhenAll(owner.DeleteAsync(targetPath), owner.PostAsync(targetPath + "/transfer", null));
+        var attempts = await Task.WhenAll(owner.DeleteAsync(targetPath), secondOwnerSession.PostAsync(targetPath + "/transfer", null));
         using var removal = attempts[0];
         using var transfer = attempts[1];
         if (removal.StatusCode == HttpStatusCode.NoContent)
