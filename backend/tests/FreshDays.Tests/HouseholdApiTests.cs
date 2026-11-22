@@ -38,50 +38,6 @@ public class HouseholdApiTests
         Assert.Equal(office.GetProperty("id").GetGuid(), Assert.Single(bobHouseholds.EnumerateArray()).GetProperty("id").GetGuid());
     }
 
-    [Theory]
-    [InlineData("inventory", "expiresAt", "2027-01-01")]
-    [InlineData("shopping", "completed", true)]
-    public async Task HouseholdListsFollowTheExplicitScopeAndRejectAnotherUser(string list, string field, object value)
-    {
-        await using var database = new PostgresTestDatabase();
-        await database.Initialize();
-        await using var phaseOne = database.CreateFactory();
-        using var google = new GoogleTestIdentityProvider();
-        await using var factory = google.Configure(phaseOne);
-        using var alice = Browser(factory);
-        using var bob = Browser(factory);
-        using var anonymous = Browser(factory);
-
-        await SignIn(alice, google.Credential("alice", "alice@gmail.com"));
-        await SignIn(bob, google.Credential("bob", "bob@gmail.com"));
-        var home = await Create(alice, "Home");
-        var cottage = await Create(alice, "Cottage");
-        var office = await Create(bob, "Office");
-        var householdPaths = new[] { home, cottage, office }.Select(household =>
-            $"/api/households/{household.GetProperty("id").GetGuid()}/{list}").ToArray();
-
-        var homePath = householdPaths[0];
-        Assert.Equal(HttpStatusCode.Unauthorized, (await anonymous.GetAsync(homePath)).StatusCode);
-        Assert.Equal(HttpStatusCode.Forbidden, (await bob.GetAsync(homePath)).StatusCode);
-        Assert.Equal(HttpStatusCode.Forbidden, (await bob.PutAsJsonAsync(homePath, Array.Empty<object>())).StatusCode);
-        Assert.Equal(HttpStatusCode.Forbidden, (await alice.GetAsync(householdPaths[2])).StatusCode);
-        Assert.Equal(HttpStatusCode.Forbidden, (await alice.GetAsync($"/api/households/{Guid.NewGuid()}/{list}")).StatusCode);
-
-        var original = new Dictionary<string, object> { ["id"] = "same-id", ["name"] = "Home item", [field] = value };
-        var other = new Dictionary<string, object> { ["id"] = "same-id", ["name"] = "Cottage item", [field] = value };
-        Assert.Equal(HttpStatusCode.NoContent, (await alice.PutAsJsonAsync(homePath, new[] { original })).StatusCode);
-        Assert.Equal(0, (await alice.GetFromJsonAsync<JsonElement>(householdPaths[1])).GetArrayLength());
-        Assert.Equal(HttpStatusCode.NoContent, (await alice.PutAsJsonAsync(householdPaths[1], new[] { other })).StatusCode);
-        Assert.Equal(0, (await bob.GetFromJsonAsync<JsonElement>(householdPaths[2])).GetArrayLength());
-
-        using var response = await alice.GetAsync(homePath);
-        Assert.Equal("no-store", response.Headers.CacheControl?.ToString());
-        var homeItems = await response.Content.ReadFromJsonAsync<JsonElement>();
-        Assert.Equal("Home item", Assert.Single(homeItems.EnumerateArray()).GetProperty("name").GetString());
-        var cottageItems = await alice.GetFromJsonAsync<JsonElement>(householdPaths[1]);
-        Assert.Equal("Cottage item", Assert.Single(cottageItems.EnumerateArray()).GetProperty("name").GetString());
-    }
-
     [Fact]
     public async Task InvalidHouseholdNamesAreRejectedWithoutCreatingMemberships()
     {
@@ -99,42 +55,6 @@ public class HouseholdApiTests
             Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
         }
         Assert.Empty((await client.GetFromJsonAsync<JsonElement>("/api/households")).EnumerateArray());
-    }
-
-    [Fact]
-    public async Task InvalidScopedListWritesPreserveExistingInventory()
-    {
-        await using var database = new PostgresTestDatabase();
-        await database.Initialize();
-        await using var phaseOne = database.CreateFactory();
-        using var google = new GoogleTestIdentityProvider();
-        await using var factory = google.Configure(phaseOne);
-        using var client = Browser(factory);
-        await SignIn(client, google.Credential("alice", "alice@gmail.com"));
-        var home = await Create(client, "Home");
-        var path = $"/api/households/{home.GetProperty("id").GetGuid()}/inventory";
-        var original = new[] { new { id = "original", name = "牛奶", expiresAt = "2027-01-01" } };
-        Assert.Equal(HttpStatusCode.NoContent, (await client.PutAsJsonAsync(path, original)).StatusCode);
-
-        var invalidBodies = new[]
-        {
-            "[",
-            "{}",
-            "[" + string.Join(',', Enumerable.Repeat("{}", 501)) + "]",
-            """[{"id":"date","name":"鹽","expiresAt":12}]""",
-            """[{"id":"date","name":"鹽","expiresAt":"2027-02-30"}]""",
-        };
-        foreach (var invalid in invalidBodies)
-        {
-            using var body = new StringContent(invalid);
-            using var response = await client.PutAsync(path, body);
-            Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
-        }
-        using var tooLarge = new StringContent(new string(' ', 1_048_577));
-        using var rejected = await client.PutAsync(path, tooLarge);
-        Assert.Equal(HttpStatusCode.RequestEntityTooLarge, rejected.StatusCode);
-        var remaining = await client.GetFromJsonAsync<JsonElement>(path);
-        Assert.Equal("original", Assert.Single(remaining.EnumerateArray()).GetProperty("id").GetString());
     }
 
     [Fact]

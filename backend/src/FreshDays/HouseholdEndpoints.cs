@@ -1,5 +1,4 @@
 using Microsoft.AspNetCore.Mvc;
-using Npgsql;
 
 namespace FreshDays;
 
@@ -32,29 +31,8 @@ internal static class HouseholdEndpoints
             return Results.Created($"/api/households/{household.Id}", household);
         });
 
-        routes.MapMethods("/{householdId:guid}/inventory", ["GET", "PUT"],
-            (HttpContext context, Guid householdId, NpgsqlDataSource source) => HouseholdList(context, householdId, "inventory", source));
-        routes.MapMethods("/{householdId:guid}/shopping", ["GET", "PUT"],
-            (HttpContext context, Guid householdId, NpgsqlDataSource source) => HouseholdList(context, householdId, "shopping", source));
-    }
-
-    private static async Task<IResult> HouseholdList(HttpContext context, Guid householdId, string list, NpgsqlDataSource source)
-    {
-        var cancellationToken = context.RequestAborted;
-        var userId = AppSessions.UserId(context.User);
-        await using var connection = await source.OpenConnectionAsync(cancellationToken);
-        await using var transaction = await connection.BeginTransactionAsync(cancellationToken);
-        if (!await HouseholdStore.LockMembership(transaction, householdId, userId, cancellationToken))
-            return Results.Forbid();
-
-        if (HttpMethods.IsGet(context.Request.Method))
-            return Results.Text(await PostgresStore.ReadList(list, householdId, connection, transaction, cancellationToken),
-                "application/json");
-
-        var result = await ListPayload.Replace(context, list,
-            json => PostgresStore.ReplaceList(list, householdId, json, transaction, cancellationToken));
-        await transaction.CommitAsync(cancellationToken);
-        return result;
+        routes.MapInventory();
+        routes.MapShopping();
     }
 
     private sealed record HouseholdName(string? Name);
