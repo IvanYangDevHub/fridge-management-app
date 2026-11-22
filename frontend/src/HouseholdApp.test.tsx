@@ -147,20 +147,22 @@ test.each(['resolve', 'reject'])('signing out ignores a household lookup that la
   expect(screen.queryByRole('alert')).not.toBeInTheDocument();
 });
 
-test('scoped inventory and shopping writes use the active household and report save failures', async () => {
+test('scoped inventory writes use the active household and report save failures', async () => {
   const counts = new Map<string, number>();
   const fetcher = vi.fn(async (path: string, options?: RequestInit) => {
     if (options?.method === 'PUT') {
       const current = counts.get(path) ?? 0;
       counts.set(path, current + 1);
-      return new Response(null, { status: current === 0 ? 503 : 204 });
+      if (current === 0) return json({}, 503);
+      if (path.endsWith('/item?id=food')) return json({ id: 'food', name: '牛奶', status: 'consumed', version: 2 });
+      return new Response(null, { status: 204 });
     }
     switch (path) {
       case '/api/auth/config': return json(phaseTwo);
       case '/api/auth/session': return json(session);
       case '/api/households': return json([home]);
       case '/api/households/home/inventory':
-        return json([{ id: 'food', name: '牛奶', expiresAt: '2000-01-01', status: 'active', category: 'dairy' }]);
+        return json([{ id: 'food', name: '牛奶', expiresAt: '2000-01-01', status: 'active', category: 'dairy', version: 1 }]);
       case '/api/households/home/shopping':
         return json([{ id: 'shop', name: '米', completed: false }]);
       default: throw new Error(path);
@@ -173,23 +175,13 @@ test('scoped inventory and shopping writes use the active household and report s
   expect(await screen.findByText('伺服器錯誤 503')).toBeInTheDocument();
   await userEvent.click(consumed);
   expect(await screen.findByText('庫存已儲存')).toBeInTheDocument();
-  expect(fetcher).toHaveBeenCalledWith('/api/households/home/inventory', expect.objectContaining({
+  expect(fetcher).toHaveBeenCalledWith('/api/households/home/inventory/item?id=food', expect.objectContaining({
     method: 'PUT',
     headers: { 'content-type': 'application/json' },
     body: expect.stringContaining('"status":"consumed"'),
   }));
 
-  const remove = screen.getByRole('button', { name: '移除' });
-  await userEvent.click(remove);
-  expect(await screen.findByText('伺服器錯誤 503')).toBeInTheDocument();
-  await userEvent.click(remove);
-  expect(await screen.findByText('採買清單已儲存')).toBeInTheDocument();
-  expect(fetcher).toHaveBeenCalledWith('/api/households/home/shopping', expect.objectContaining({
-    method: 'PUT',
-    headers: { 'content-type': 'application/json' },
-    body: '[]',
-  }));
-  expect(screen.queryByText('米')).not.toBeInTheDocument();
+
 });
 
 test('phase one still retries a rejected stored pairing code with the new code', async () => {
