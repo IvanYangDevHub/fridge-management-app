@@ -8,6 +8,13 @@ public static class PostgresMigrations
     {
         await using var connection = await source.OpenConnectionAsync();
         await using var transaction = await connection.BeginTransactionAsync();
+        await Apply(transaction);
+        await transaction.CommitAsync();
+    }
+
+    public static async Task Apply(NpgsqlTransaction transaction)
+    {
+        var connection = transaction.Connection!;
         await using var setup = new NpgsqlCommand("""
             SELECT pg_advisory_xact_lock(12685, 6);
             CREATE TABLE IF NOT EXISTS schema_migrations (version INTEGER PRIMARY KEY);
@@ -15,7 +22,6 @@ public static class PostgresMigrations
         await setup.ExecuteNonQueryAsync();
         await ApplyVersion(connection, transaction, 1, InitialSchema);
         await ApplyVersion(connection, transaction, 2, IdentitySchema);
-        await transaction.CommitAsync();
     }
 
     private static async Task ApplyVersion(NpgsqlConnection connection, NpgsqlTransaction transaction, int version, string sql)
