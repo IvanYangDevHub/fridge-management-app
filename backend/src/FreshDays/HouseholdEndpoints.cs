@@ -32,8 +32,7 @@ internal static class HouseholdEndpoints
 
         routes.MapMethods("/{householdId:guid}/inventory", ["GET", "PUT"],
             (HttpContext context, Guid householdId, NpgsqlDataSource source) => HouseholdList(context, householdId, "inventory", source));
-        routes.MapMethods("/{householdId:guid}/shopping", ["GET", "PUT"],
-            (HttpContext context, Guid householdId, NpgsqlDataSource source) => HouseholdList(context, householdId, "shopping", source));
+        routes.MapShopping();
     }
 
     private static async Task<IResult> HouseholdList(HttpContext context, Guid householdId, string list, NpgsqlDataSource source)

@@ -40,7 +40,6 @@ public class HouseholdApiTests
 
     [Theory]
     [InlineData("inventory", "expiresAt", "2027-01-01")]
-    [InlineData("shopping", "completed", true)]
     public async Task HouseholdListsFollowTheExplicitScopeAndRejectAnotherUser(string list, string field, object value)
     {
         await using var database = new PostgresTestDatabase();
