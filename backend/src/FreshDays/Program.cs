@@ -12,6 +12,7 @@ builder.Services.AddSingleton(sp => NpgsqlDataSource.Create(
     ?? throw new InvalidOperationException("ConnectionStrings__FreshDays is required.")));
 builder.Services.AddSingleton<PostgresStore>();
 builder.Services.AddSingleton<HouseholdStore>();
+builder.Services.AddSingleton<InvitationStore>();
 builder.Services.AddHttpClient();
 builder.Services.AddAppSessions();
 builder.Services.AddSingleton(sp => {
@@ -35,6 +36,7 @@ var secret = lineConfig.Secret;
 app.MapGet("/health", () => Results.Text("ok"));
 app.MapAppSessions(phaseTwo);
 app.MapHouseholds(phaseTwo);
+app.MapInvitations(phaseTwo);
 
 app.MapMethods("/api/{list:regex(^(inventory|shopping)$)}", ["GET", "PUT", "POST"], async (HttpContext context, string list, PostgresStore store) =>
 {

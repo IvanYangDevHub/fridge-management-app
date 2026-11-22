@@ -25,7 +25,7 @@ internal sealed class HouseholdStore(NpgsqlDataSource source)
     }
 
     public static async Task<bool> LockMembership(NpgsqlTransaction transaction, Guid householdId, Guid userId,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken, bool ownerOnly = false)
     {
         // Lock the household before membership so deletion cannot take those locks in reverse order.
         await using var household = new NpgsqlCommand("SELECT 1 FROM households WHERE id = @household FOR KEY SHARE",
@@ -36,10 +36,11 @@ internal sealed class HouseholdStore(NpgsqlDataSource source)
 
         await using var member = new NpgsqlCommand("""
             SELECT 1 FROM household_members
-            WHERE household_id = @household AND user_id = @user FOR SHARE;
+            WHERE household_id = @household AND user_id = @user AND (NOT @owner_only OR role = 'owner') FOR SHARE;
             """, transaction.Connection, transaction);
         member.Parameters.AddWithValue("household", householdId);
         member.Parameters.AddWithValue("user", userId);
+        member.Parameters.AddWithValue("owner_only", ownerOnly);
         return await member.ExecuteScalarAsync(cancellationToken) is not null;
     }
 
