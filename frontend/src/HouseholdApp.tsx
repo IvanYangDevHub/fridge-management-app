@@ -1,9 +1,10 @@
 import { useEffect, useState, type FormEvent } from 'react';
 import { HouseholdLists } from './App';
+import HouseholdInvitations from './HouseholdInvitations';
 
 type Household = { id: string; name: string; role: 'owner' | 'member' };
 
-export default function HouseholdApp() {
+export default function HouseholdApp({ preferredHouseholdId }: { preferredHouseholdId: string }) {
   const [households, setHouseholds] = useState<Household[]>([]);
   const [selectedId, setSelectedId] = useState('');
   const [loading, setLoading] = useState(true);
@@ -22,7 +23,8 @@ export default function HouseholdApp() {
         const result: Household[] = await response.json();
         if (controller.signal.aborted) return;
         setHouseholds(result);
-        setSelectedId(result[0]?.id ?? '');
+        const initial = result.find((household) => household.id === preferredHouseholdId) ?? result[0];
+        setSelectedId(initial?.id ?? '');
       } catch {
         if (!controller.signal.aborted) setLoadFailed(true);
       } finally {
@@ -31,7 +33,7 @@ export default function HouseholdApp() {
     }
     void load();
     return () => controller.abort();
-  }, [attempt]);
+  }, [attempt, preferredHouseholdId]);
 
   async function create(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -75,6 +77,8 @@ export default function HouseholdApp() {
       </form>}
       {createFailed && <p role="alert">無法建立家庭，請再試一次。</p>}
     </section>
+    {households.find((household) => household.id === selectedId)?.role === 'owner' &&
+      <HouseholdInvitations key={selectedId} householdId={selectedId} />}
     {selectedId && <HouseholdLists key={selectedId} householdId={selectedId} />}
   </>;
 }
