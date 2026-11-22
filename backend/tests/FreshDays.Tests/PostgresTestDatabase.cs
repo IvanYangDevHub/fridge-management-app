@@ -15,6 +15,12 @@ internal sealed class PostgresTestDatabase : IAsyncDisposable
 
     private readonly NpgsqlDataSource administrator = NpgsqlDataSource.Create(ConnectionString);
 
+    public string IsolatedConnectionString => new NpgsqlConnectionStringBuilder(ConnectionString)
+    {
+        SearchPath = schema,
+        Pooling = false,
+    }.ConnectionString;
+
     public async Task Initialize()
     {
         await using var command = administrator.CreateCommand($"CREATE SCHEMA {schema}");
@@ -26,11 +32,7 @@ internal sealed class PostgresTestDatabase : IAsyncDisposable
             builder.ConfigureAppConfiguration((_, config) =>
                 config.AddInMemoryCollection(new Dictionary<string, string?>
                 {
-                    ["ConnectionStrings:FreshDays"] = new NpgsqlConnectionStringBuilder(ConnectionString)
-                    {
-                        SearchPath = schema,
-                        Pooling = false,
-                    }.ConnectionString,
+                    ["ConnectionStrings:FreshDays"] = IsolatedConnectionString,
                     ["HouseholdCode"] = "test-code",
                     ["Line:ChannelSecret"] = "secret",
                     ["Line:AccessToken"] = "token",
