@@ -1,6 +1,7 @@
 import { useEffect, useState, type FormEvent } from 'react';
 import { HouseholdLists } from './App';
 import HouseholdInvitations from './HouseholdInvitations';
+import HouseholdMembership from './HouseholdMembership';
 
 type Household = { id: string; name: string; role: 'owner' | 'member' };
 
@@ -57,6 +58,8 @@ export default function HouseholdApp({ preferredHouseholdId }: { preferredHouseh
     }
   }
 
+  const selected = households.find((household) => household.id === selectedId) ?? households[0];
+
   return <>
     <section className="panel">
       <h2>家庭</h2>
@@ -66,8 +69,8 @@ export default function HouseholdApp({ preferredHouseholdId }: { preferredHouseh
         setLoading(true);
         setAttempt(attempt + 1);
       }}>重試</button></>}
-      {households.length > 0 && <label>目前家庭
-        <select value={selectedId} onChange={(event) => setSelectedId(event.target.value)}>
+      {selected && <label>目前家庭
+        <select value={selected.id} onChange={(event) => setSelectedId(event.target.value)}>
           {households.map((household) => <option value={household.id} key={household.id}>{household.name}</option>)}
         </select>
       </label>}
@@ -77,8 +80,12 @@ export default function HouseholdApp({ preferredHouseholdId }: { preferredHouseh
       </form>}
       {createFailed && <p role="alert">無法建立家庭，請再試一次。</p>}
     </section>
-    {households.find((household) => household.id === selectedId)?.role === 'owner' &&
-      <HouseholdInvitations key={selectedId} householdId={selectedId} />}
-    {selectedId && <HouseholdLists key={selectedId} householdId={selectedId} />}
+    {selected?.role === 'owner' &&
+      <HouseholdInvitations key={'invitations-' + selected.id} householdId={selected.id} />}
+    {selected && <HouseholdMembership key={'members-' + selected.id} householdId={selected.id} role={selected.role}
+      onLeave={(id) => setHouseholds((current) => current.filter((household) => household.id !== id))}
+      onTransfer={(id) => setHouseholds((current) => current.map((household) =>
+        household.id === id ? { ...household, role: 'member' } : household))} />}
+    {selected && <HouseholdLists key={selected.id} householdId={selected.id} />}
   </>;
 }

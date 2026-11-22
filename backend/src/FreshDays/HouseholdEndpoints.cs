@@ -17,6 +17,8 @@ internal static class HouseholdEndpoints
             return await next(context);
         });
 
+        routes.MapHouseholdMembership();
+
         routes.MapGet("", async (HttpContext context, HouseholdStore store) =>
             Results.Ok(await store.List(AppSessions.UserId(context.User), context.RequestAborted)));
 
