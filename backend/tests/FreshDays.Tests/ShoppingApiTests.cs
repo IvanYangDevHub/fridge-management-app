@@ -200,8 +200,13 @@ public class ShoppingApiTests
     {
         await using var household = await ShoppingHousehold.Create();
         const string id = "../legacy/米&%2F";
-        var path = await household.ClaimLegacy(new { id, name = "米", marker = new { shelf = 2 } });
-        var item = Assert.Single((await household.Owner.GetFromJsonAsync<JsonElement>(path)).EnumerateArray());
+        var path = await household.ClaimLegacy(
+            new { id, name = "米", marker = new { shelf = 2 } },
+            new { id = "legacy-oats", name = "燕麥", completed = 1 });
+        var migrated = await household.Owner.GetFromJsonAsync<JsonElement>(path);
+        var item = Assert.Single(migrated.EnumerateArray(), item => item.GetProperty("id").GetString() == id);
+        Assert.True(Assert.Single(migrated.EnumerateArray(), item => item.GetProperty("id").GetString() == "legacy-oats")
+            .GetProperty("completed").GetBoolean());
         Assert.Equal(id, item.GetProperty("id").GetString());
         Assert.False(item.GetProperty("completed").GetBoolean());
 
@@ -210,7 +215,8 @@ public class ShoppingApiTests
             name = "糙米", completed = true, version = item.GetProperty("version").GetInt64(),
         });
         Assert.Equal(HttpStatusCode.OK, changed.StatusCode);
-        var updated = Assert.Single((await household.Owner.GetFromJsonAsync<JsonElement>(path)).EnumerateArray());
+        var latest = await household.Owner.GetFromJsonAsync<JsonElement>(path);
+        var updated = Assert.Single(latest.EnumerateArray(), item => item.GetProperty("id").GetString() == id);
         Assert.Equal(id, updated.GetProperty("id").GetString());
         Assert.Equal("糙米", updated.GetProperty("name").GetString());
         Assert.True(updated.GetProperty("completed").GetBoolean());
@@ -250,14 +256,14 @@ public class ShoppingApiTests
             return setup;
         }
 
-        public async Task<string> ClaimLegacy(object item)
+        public async Task<string> ClaimLegacy(params object[] items)
         {
             using var paired = phaseOne.CreateClient();
             paired.DefaultRequestHeaders.Add("x-household-code", "test-code");
             var scopedPath = $"/api/households/{PostgresStore.LegacyHouseholdId}/shopping";
             using var phaseOneScoped = await paired.GetAsync(scopedPath);
             Assert.Equal(HttpStatusCode.NotFound, phaseOneScoped.StatusCode);
-            using var set = await paired.PutAsJsonAsync("/api/shopping", new[] { item });
+            using var set = await paired.PutAsJsonAsync("/api/shopping", items);
             Assert.Equal(HttpStatusCode.NoContent, set.StatusCode);
             using var claimed = await Owner.PostAsync("/api/households/legacy/claim", null);
             Assert.Equal(HttpStatusCode.Created, claimed.StatusCode);

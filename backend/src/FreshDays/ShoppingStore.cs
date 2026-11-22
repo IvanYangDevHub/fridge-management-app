@@ -4,9 +4,11 @@ namespace FreshDays;
 
 internal static class ShoppingStore
 {
+    // Phase one accepted any JSON value for completed. Preserve the old checkbox behavior.
     private const string ItemJson = """
         extra || jsonb_build_object('id', id, 'name', name,
-            'completed', COALESCE(completed = 'true'::jsonb, false), 'version', version)
+            'completed', COALESCE(completed NOT IN ('null'::jsonb, 'false'::jsonb, '0'::jsonb, '""'::jsonb), false),
+            'version', version)
         """;
 
     public static async Task<string> Read(NpgsqlTransaction transaction, Guid householdId, CancellationToken cancellationToken)
