@@ -1,6 +1,6 @@
 # LINE Messaging API Webhook 設定
 
-本專案的 ASP.NET Core 10 後端提供 `POST /webhook/line`、`GET /health`、`/api/inventory` 與 `/api/shopping`，並在台灣時間每日 09:00 後檢查到期食材。React 前端獨立運行，後端使用 SQLite 保存資料。
+本專案的 ASP.NET Core 10 後端提供 `POST /webhook/line`、`GET /health`、`/api/inventory` 與 `/api/shopping`，並在台灣時間每日 09:00 後檢查到期食材。React 前端獨立運行，後端使用 PostgreSQL 保存資料。
 
 ## 1. 建立官方帳號並取得 Channel 憑證
 
@@ -14,13 +14,13 @@ LINE 官方步驟：[開始使用 Messaging API](https://developers.line.biz/en/
 
 ## 2. 本機啟動
 
-在 PowerShell 執行（將值替換成你自己的憑證）：
+先依 [README 的本機啟動步驟](README.md#本機啟動) 準備 PostgreSQL，再在 PowerShell 設定自己的憑證。
 
 ```powershell
 $env:LINE_CHANNEL_SECRET = '你的 Channel secret'
 $env:LINE_CHANNEL_ACCESS_TOKEN = '你的 Channel access token'
 $env:HOUSEHOLD_CODE = '請自訂一組長且隨機的家庭配對碼'
-$env:SQLITE_PATH = './freshdays.db'
+$env:ConnectionStrings__FreshDays = 'Host=127.0.0.1;Port=55432;Database=freshdays_dev;Username=freshdays_dev;Password=local-dev'
 dotnet run --project backend/src/FreshDays
 ```
 
@@ -28,14 +28,14 @@ dotnet run --project backend/src/FreshDays
 
 ```powershell
 Invoke-WebRequest http://localhost:3000/health
-dotnet test backend/tests/FreshDays.Tests --collect:"XPlat Code Coverage"
+
 ```
 
 `health` 應回傳 `ok`。React 開發網頁位於 `http://localhost:5173`；另開視窗在 `frontend/` 執行 `npm install` 與 `npm run dev`。直接向 Webhook 傳送沒有正確簽章的請求會得到 HTTP 401，這是預期行為。`.env.example` 列出需要的環境變數；若自行建立 `.env`，後端不會自動載入它，仍需透過部署平台設定或自行載入環境變數。
 
 ## 3. 提供公開 HTTPS 網址
 
-LINE 無法存取 `localhost`。將 ASP.NET Core 後端部署到可公開存取、具有效 TLS 憑證且會持續運作的主機，啟動命令可使用 `dotnet run --project backend/src/FreshDays`。在主機設定 `LINE_CHANNEL_SECRET`、`LINE_CHANNEL_ACCESS_TOKEN`、`HOUSEHOLD_CODE`、`SQLITE_PATH`，以及主機要求的 `PORT`。`SQLITE_PATH` 必須指向持久化磁碟上的檔案，例如 `/var/data/freshdays.db`。開發測試可用 HTTPS tunnel 暫時公開本機 `localhost:3000`。確認公開網址的 `/health` 回傳 `ok`，再前往下一步。
+LINE 無法存取 `localhost`。將 ASP.NET Core 後端部署到可公開存取、具有效 TLS 憑證且會持續運作的主機，啟動命令可使用 `dotnet run --project backend/src/FreshDays`。在主機設定 `LINE_CHANNEL_SECRET`、`LINE_CHANNEL_ACCESS_TOKEN`、`HOUSEHOLD_CODE`、`ConnectionStrings__FreshDays`，以及主機要求的 `PORT`。開發測試可用 HTTPS tunnel 暫時公開本機 `localhost:3000`。確認公開網址的 `/health` 回傳 `ok`，再前往下一步。
 
 Webhook URL 格式為 `https://你的後端網域/webhook/line`。React 生產版會呼叫同網域的 `/api`；若將前端部署到另一個網域，須額外設定反向代理。開發時的 Vite 代理設定不會自動套用到生產部署。
 
@@ -50,6 +50,12 @@ Webhook URL 格式為 `https://你的後端網域/webhook/line`。React 生產�
 7. 伺服器持續運作時，每天台灣時間 09:00 後會檢查一次庫存；若有已過期或三天內到期食材，就向已訂閱者推送摘要。若 09:00 時伺服器未運作，啟動後也會補做當日檢查。
 8. 若官方帳號的自動回覆也會回訊，可在 LINE Official Account Manager 檢查回應設定，避免測試時看到重複訊息。
 
+## 第二階段家庭綁定
+
+設定 `Product__PhaseTwo=true` 後，尚未綁定的原訂閱者會收到一次重新綁定提示，提示只包含操作方式。未綁定時傳送「到期」，或使用舊指令「訂閱」，也會收到重新綁定方式。登入鮮日子，選擇要接收提醒的家庭，按「產生 LINE 綁定指令」，並在 10 分鐘內把指令私訊給鮮日子 LINE 官方帳號。收到「LINE 綁定完成」後，即可傳送「到期」查詢該家庭。每個 LINE 帳號一次綁定一個家庭，重新綁定會改用新選的家庭。「取消訂閱」會解除綁定。退出家庭或遭移除時，綁定與待使用的指令一併失效。
+
+每日提醒使用台灣時間，自 09:00 起檢查。服務會記住當日推送內容並在重試時使用相同的 LINE retry key。排程送出前會再次確認綁定及家庭成員資格。改綁後會依新家庭庫存產出摘要。若 LINE 已接受當日提醒或前次送出結果仍不確定，新家庭提醒從隔日開始。若 LINE 明確拒絕當日首次推送，改綁後可用新的 retry key 推送新家庭的當日摘要。[LINE 重試機制](https://developers.line.biz/en/docs/messaging-api/retrying-api-request/)
+
 ## 故障排查
 
 | 現象 | 檢查 |
@@ -59,6 +65,6 @@ Webhook URL 格式為 `https://你的後端網域/webhook/line`。React 生產�
 | Verify 成功但 `ping` 沒回覆 | 已開啟 Use webhook、access token 正確且未過期，並檢查伺服器的 LINE reply HTTP 狀態紀錄。 |
 | 訊息重複 | 檢查官方帳號既有的自動回應設定。 |
 
-伺服器在 `SQLITE_PATH` 指定的 SQLite 檔保存庫存、採買清單、LINE 訂閱者與每位訂閱者每日的發送紀錄。部署主機必須提供持久化磁碟，且只能啟動一個伺服器實例；一般無狀態 serverless 平台不適合此版本。這是單一家庭展示版，尚未提供個人登入與完整家庭權限。共用資料由後端提供，已連線的其他瀏覽器重新整理後可讀到最新內容，但畫面不會即時自動更新。請勿公開配對碼；換碼不會自動取消既有訂閱者。LINE 推送失敗時會保留每位訂閱者的 retry key 以供重試，請監控錯誤紀錄。
+伺服器在 PostgreSQL 保存庫存、採買清單、LINE 訂閱者與每位訂閱者每日的發送紀錄。部署時只執行一個後端實例，以便由同一個背景工作發送每日提醒。第一階段沿用共同配對碼，換碼後既有訂閱仍有效。請勿公開配對碼。LINE 推送失敗時會保留每位訂閱者的 retry key 以供重試，請監控錯誤紀錄。
 
 參考：[建立 Bot](https://developers.line.biz/en/docs/messaging-api/building-bot/)、[接收 Webhook](https://developers.line.biz/en/docs/messaging-api/receiving-messages/)、[簽章驗證](https://developers.line.biz/en/docs/messaging-api/verify-webhook-signature/)、[回覆訊息](https://developers.line.biz/en/docs/messaging-api/sending-messages/)。

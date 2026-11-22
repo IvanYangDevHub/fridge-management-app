@@ -1,9 +1,11 @@
 FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
 WORKDIR /src
 COPY src/FreshDays/FreshDays.csproj src/FreshDays/
-RUN dotnet restore src/FreshDays/FreshDays.csproj
+COPY src/FreshDays.Migration/FreshDays.Migration.csproj src/FreshDays.Migration/
+RUN dotnet restore src/FreshDays.Migration/FreshDays.Migration.csproj
 COPY src/FreshDays/ src/FreshDays/
-RUN dotnet publish src/FreshDays/FreshDays.csproj -c Release -o /app/publish --no-restore
+COPY src/FreshDays.Migration/ src/FreshDays.Migration/
+RUN dotnet publish src/FreshDays.Migration/FreshDays.Migration.csproj -c Release -o /app/publish --no-restore
 
 FROM mcr.microsoft.com/dotnet/aspnet:10.0
 WORKDIR /app

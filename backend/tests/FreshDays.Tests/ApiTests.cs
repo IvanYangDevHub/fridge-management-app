@@ -4,24 +4,22 @@ using System.Text.Json;
 using System.Text;
 using System.Security.Cryptography;
 using Microsoft.AspNetCore.Mvc.Testing;
-using Microsoft.Extensions.Configuration;
+
 using Xunit;
 
 namespace FreshDays.Tests;
 
 public class ApiTests : IAsyncLifetime
 {
-    private readonly string path = Path.Combine(Path.GetTempPath(), $"freshdays-api-{Guid.NewGuid():N}.db");
+    private readonly PostgresTestDatabase database = new();
     private WebApplicationFactory<Program> factory = null!;
     private HttpClient client = null!;
 
-    public Task InitializeAsync()
+    public async Task InitializeAsync()
     {
-        factory = new WebApplicationFactory<Program>().WithWebHostBuilder(builder => builder.ConfigureAppConfiguration((_, config) => config.AddInMemoryCollection(new Dictionary<string, string?> {
-            ["DatabasePath"] = path, ["HouseholdCode"] = "test-code", ["Line:ChannelSecret"] = "secret", ["Line:AccessToken"] = "token", ["DisableWorker"] = "true"
-        })));
+        await database.Initialize();
+        factory = database.CreateFactory();
         client = factory.CreateClient();
-        return Task.CompletedTask;
     }
 
     [Fact]
@@ -56,6 +54,6 @@ public class ApiTests : IAsyncLifetime
     {
         client.Dispose();
         await factory.DisposeAsync();
-        if (File.Exists(path)) File.Delete(path);
+        await database.DisposeAsync();
     }
 }

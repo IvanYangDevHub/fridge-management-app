@@ -10,15 +10,15 @@
 ## React 與 API 重構規劃
 
 1. React + TypeScript 前端獨立開發與建置，畫面依資料狀態呈現。
-2. ASP.NET Core 後端提供 `/api/inventory`、`/api/shopping`，同時接收 LINE Webhook 與執行到期排程，並以 SQLite 保存資料。
-3. 食材與採買資料由後端 SQLite 儲存，React 前端透過 API 讀寫。
+2. ASP.NET Core 後端提供 `/api/inventory`、`/api/shopping`，同時接收 LINE Webhook 與執行到期排程，並以 PostgreSQL 保存資料。
+3. 食材與採買資料由後端 PostgreSQL 儲存，React 前端透過 API 讀寫。
 4. 正式使用前，以個人登入與家庭成員權限取代展示版配對碼，並評估多人同時更新時的衝突處理。
 
 ## 實作狀態（本機展示版）
 
 | 功能 | 狀態 | 說明 |
 | --- | --- | --- |
-| 手動新增、查看、篩選、刪除 | 已完成 | React 前端透過 API 讀寫 SQLite。 |
+| 手動新增、查看、篩選、刪除 | 已完成 | React 前端透過 API 讀寫 PostgreSQL。 |
 | 到期風險與排序 | 已完成 | 支援已過期、今天到期、3 天內到期、正常。 |
 | 保存期限建議 | 已完成 | 以本機規則提供可修改的建議，不宣稱保證正確。 |
 | 標記用完 | 已完成 | 保留紀錄但不再列入庫存與料理建議。 |
@@ -176,7 +176,7 @@ type ShoppingListItem = {
 
 ### 目前原型
 
-React + TypeScript 前端透過 ASP.NET Core API 讀寫 SQLite；後端也處理 LINE Webhook 與到期通知。現階段仍以單一家庭配對碼驗證，尚未導入個人登入及正式家庭權限。
+React + TypeScript 前端透過 ASP.NET Core API 讀寫 PostgreSQL；後端也處理 LINE Webhook 與到期通知。現階段仍以單一家庭配對碼驗證，尚未導入個人登入及正式家庭權限。
 
 ### Hackathon 展示版建議演進
 
