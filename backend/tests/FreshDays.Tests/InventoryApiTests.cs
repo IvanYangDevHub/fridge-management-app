@@ -52,20 +52,16 @@ public class InventoryApiTests
         await SignIn(outsider, google.Credential("outsider", "outsider@gmail.com"));
         var household = await CreateHousehold(alice, "Home");
         var isolated = await CreateHousehold(outsider, "Office");
-        var householdId = Guid.Parse(household.Split('/')[3]);
-        var bobId = (await bob.GetFromJsonAsync<JsonElement>("/api/auth/session")).GetProperty("userId").GetGuid();
-        // Establish shared membership until the invitation endpoints are integrated.
-        await using var source = Npgsql.NpgsqlDataSource.Create(database.IsolatedConnectionString);
-        await using (var membership = source.CreateCommand(
-            "INSERT INTO household_members (household_id, user_id, role) VALUES (@household, @user, 'member')"))
-        {
-            membership.Parameters.AddWithValue("household", householdId);
-            membership.Parameters.AddWithValue("user", bobId);
-            await membership.ExecuteNonQueryAsync();
-        }
-
+        var invitations = household[..^"/inventory".Length] + "/invitations";
+        using var invitation = await alice.PostAsJsonAsync(invitations, new { email = "bob@gmail.com" });
+        Assert.Equal(HttpStatusCode.Created, invitation.StatusCode);
+        var token = (await invitation.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("token").GetString();
+        using var redeemed = await bob.PostAsJsonAsync("/api/households/invitations/redeem", new { token });
+        Assert.Equal(HttpStatusCode.Created, redeemed.StatusCode);
         var milk = ItemPath(household, await CreateItem(alice, household, "Milk"));
         var eggs = ItemPath(household, await CreateItem(bob, household, "Eggs"));
+        var beforePoll = await bob.GetFromJsonAsync<JsonElement>(household);
+        Assert.Equal(new[] { "Eggs", "Milk" }, beforePoll.EnumerateArray().Select(item => item.GetProperty("name").GetString()).Order().ToArray());
         var aliceUpdate = alice.PutAsJsonAsync(milk, new { version = 1, name = "Soy milk", quantity = 3 });
         var bobUpdate = bob.PutAsJsonAsync(eggs, new { version = 1, name = "Free range eggs", quantity = 6 });
         foreach (var response in await Task.WhenAll(aliceUpdate, bobUpdate))
@@ -77,7 +73,7 @@ public class InventoryApiTests
             }
         }
 
-        using var first = await alice.GetAsync(household);
+        using var first = await bob.GetAsync(household);
         var shared = (await first.Content.ReadFromJsonAsync<JsonElement>()).EnumerateArray().ToArray();
         Assert.Equal(new[] { "Free range eggs", "Soy milk" }, shared.Select(item => item.GetProperty("name").GetString()).Order().ToArray());
         var competingWrites = await Task.WhenAll(
