@@ -16,6 +16,7 @@ internal sealed class InvitationStore(NpgsqlDataSource source, TimeProvider cloc
     public async Task<CreatedInvitation> Create(NpgsqlTransaction transaction, Guid householdId, string email,
         CancellationToken ct)
     {
+        await LockEmail(transaction, email, ct);
         var invitation = new CreatedInvitation(Guid.NewGuid(), email, clock.GetUtcNow().AddDays(7),
             WebEncoders.Base64UrlEncode(RandomNumberGenerator.GetBytes(32)));
         await using var command = new NpgsqlCommand("""
@@ -29,6 +30,14 @@ internal sealed class InvitationStore(NpgsqlDataSource source, TimeProvider cloc
         command.Parameters.AddWithValue("expires", invitation.ExpiresAt);
         await command.ExecuteNonQueryAsync(ct);
         return invitation;
+    }
+
+    internal static async Task LockEmail(NpgsqlTransaction transaction, string email, CancellationToken ct)
+    {
+        await using var command = new NpgsqlCommand("SELECT pg_advisory_xact_lock(hashtextextended(@email, 381994520))",
+            transaction.Connection, transaction);
+        command.Parameters.AddWithValue("email", email);
+        await command.ExecuteNonQueryAsync(ct);
     }
 
     public async Task<IReadOnlyList<PendingInvitation>> Pending(NpgsqlTransaction transaction, Guid householdId, CancellationToken ct)

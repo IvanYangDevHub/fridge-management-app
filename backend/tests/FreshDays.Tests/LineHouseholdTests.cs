@@ -38,8 +38,22 @@ public partial class LineServiceTests
         (await authenticated.PostAsJsonAsync(second + "/inventory", new { name = "蘋果", expiresAt })).EnsureSuccessStatusCode();
 
         var now = new DateTimeOffset(date.ToDateTime(new TimeOnly(10, 0)), TimeSpan.FromHours(8));
-        await phaseTwo.Services.GetRequiredService<LineService>().PushDue(now);
-        Assert.DoesNotContain(recorder.Calls, call => call.Endpoint == "push");
+        var worker = phaseTwo.Services.GetRequiredService<LineService>();
+        recorder.PushResults.Enqueue(HttpStatusCode.ServiceUnavailable);
+        await worker.PushDue(now);
+        await using var restarted = google.Configure(phaseOne);
+        using var restartBrowser = restarted.CreateClient();
+        var restartedWorker = restarted.Services.GetRequiredService<LineService>();
+        recorder.PushResults.Enqueue(HttpStatusCode.Conflict);
+        recorder.ConflictAccepted = true;
+        await restartedWorker.PushDue(now);
+        await restartedWorker.PushDue(now.AddDays(1));
+        var notices = recorder.Calls.Where(call => call.Endpoint == "push").ToArray();
+        Assert.Equal(2, notices.Length);
+        Assert.Equal(notices[0], notices[1]);
+        Assert.True(Guid.TryParse(notices[0].RetryKey, out _));
+        Assert.Contains("重新綁定", notices[0].Text);
+        Assert.DoesNotContain("舊家庭牛奶", notices[0].Text);
         await SendWebhook(browser, "到期");
         Assert.Contains("重新綁定", recorder.Calls[^1].Text);
         Assert.DoesNotContain("舊家庭牛奶", recorder.Calls[^1].Text);
@@ -60,6 +74,53 @@ public partial class LineServiceTests
         await SendWebhook(browser, "到期");
         Assert.Contains("蘋果", recorder.Calls[^1].Text);
         Assert.DoesNotContain("雞蛋", recorder.Calls[^1].Text);
+        recorder.PushResults.Enqueue(HttpStatusCode.OK);
+        await worker.PushDue(now);
+        var reminder = recorder.Calls.Last(call => call.Endpoint == "push");
+        Assert.Contains("蘋果", reminder.Text);
+        Assert.NotEqual(notices[0].RetryKey, reminder.RetryKey);
+    }
+
+    [Fact]
+    public async Task NoticeCandidatesAreRecheckedAfterOptOutOrBindingAndAmbiguousAttemptsExpire()
+    {
+        await using var database = new PostgresTestDatabase();
+        await database.Initialize();
+        using var recorder = new Recorder();
+        await using var phaseOne = database.CreateFactory(recorder);
+        using var legacy = phaseOne.CreateClient();
+        foreach (var user in new[] { "U0", "U1", "U2" })
+            await SendWebhook(legacy, "訂閱 test-code", user);
+
+        using var google = new GoogleTestIdentityProvider();
+        await using var phaseTwo = google.Configure(phaseOne);
+        using var owner = await SignIn(phaseTwo, google, "owner");
+        var household = await CreateHousehold(owner, "Home");
+        var now = TodayAtTen();
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        recorder.WaitForPush = (_, ct) =>
+        {
+            entered.TrySetResult();
+            return release.Task.WaitAsync(ct);
+        };
+        recorder.PushResults.Enqueue(HttpStatusCode.ServiceUnavailable);
+        var worker = phaseTwo.Services.GetRequiredService<LineService>();
+        var sending = worker.PushDue(now);
+        try
+        {
+            await entered.Task.WaitAsync(TimeSpan.FromSeconds(4));
+            await SendWebhook(owner, "取消訂閱", "U1");
+            await SendWebhook(owner, await BindingCommand(owner, household), "U2");
+        }
+        finally
+        {
+            release.TrySetResult();
+            await sending;
+        }
+
+        await worker.PushDue(now.AddDays(1));
+        Assert.Equal("U0", Assert.Single(recorder.Calls, call => call.Endpoint == "push").To);
     }
 
     [Fact]
@@ -111,6 +172,64 @@ public partial class LineServiceTests
         Assert.Equal(3, attempts.Length);
         Assert.True(Guid.TryParse(attempts[0].RetryKey, out _));
         Assert.All(attempts, attempt => Assert.Equal(attempts[0], attempt));
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task RebindingUsesANewKeyOnlyAfterDefinitiveRejection(bool earlierUnknown)
+    {
+        await using var database = new PostgresTestDatabase();
+        await database.Initialize();
+        using var recorder = new Recorder();
+        await using var phaseOne = database.CreateFactory(recorder);
+        using var google = new GoogleTestIdentityProvider();
+        await using var phaseTwo = google.Configure(phaseOne);
+        using var owner = await SignIn(phaseTwo, google, "owner");
+        using var member = await SignIn(phaseTwo, google, "member");
+        var former = await CreateHousehold(owner, "Former");
+        var current = await CreateHousehold(owner, "Current");
+        var alternate = await CreateHousehold(owner, "Alternate");
+        await Admit(owner, member, former);
+        await Admit(owner, member, current);
+        var now = TodayAtTen();
+        var expiresAt = DateOnly.FromDateTime(now.DateTime).AddDays(1).ToString("yyyy-MM-dd");
+        (await owner.PostAsJsonAsync(former + "/inventory", new { name = "Former food", expiresAt })).EnsureSuccessStatusCode();
+        (await owner.PostAsJsonAsync(current + "/inventory", new { name = "Current food", expiresAt })).EnsureSuccessStatusCode();
+        (await owner.PostAsJsonAsync(alternate + "/inventory", new { name = "Alternate food", expiresAt })).EnsureSuccessStatusCode();
+        await SendWebhook(owner, await BindingCommand(member, former));
+        var worker = phaseTwo.Services.GetRequiredService<LineService>();
+        if (earlierUnknown)
+        {
+            recorder.PushResults.Enqueue(HttpStatusCode.ServiceUnavailable);
+            await worker.PushDue(now);
+        }
+        recorder.PushResults.Enqueue(HttpStatusCode.BadRequest);
+        await worker.PushDue(now);
+        var previous = recorder.Calls.Last(call => call.Endpoint == "push");
+        Assert.Contains("Former food", previous.Text);
+        Assert.Equal(HttpStatusCode.NoContent, (await member.DeleteAsync(former + "/members/me")).StatusCode);
+        await SendWebhook(owner, await BindingCommand(member, current));
+        recorder.PushResults.Enqueue(HttpStatusCode.OK);
+        await worker.PushDue(now);
+
+        var attempts = recorder.Calls.Where(call => call.Endpoint == "push").ToArray();
+        Assert.Equal(2, attempts.Length);
+        if (earlierUnknown)
+        {
+            Assert.Equal(previous, attempts[1]);
+        }
+        else
+        {
+            Assert.NotEqual(previous.RetryKey, attempts[1].RetryKey);
+            Assert.Contains("Current food", attempts[1].Text);
+            Assert.DoesNotContain("Former food", attempts[1].Text);
+        }
+
+        Assert.Equal(HttpStatusCode.NoContent, (await member.DeleteAsync(current + "/members/me")).StatusCode);
+        await SendWebhook(owner, await BindingCommand(owner, alternate));
+        await worker.PushDue(now);
+        Assert.Equal(attempts, recorder.Calls.Where(call => call.Endpoint == "push").ToArray());
     }
 
     [Theory]

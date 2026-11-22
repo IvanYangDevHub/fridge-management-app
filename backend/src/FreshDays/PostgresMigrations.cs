@@ -25,6 +25,7 @@ public static class PostgresMigrations
         await ApplyVersion(connection, transaction, 3, InvitationSchema);
         await ApplyVersion(connection, transaction, 4, LineHouseholdSchema);
         await ApplyVersion(connection, transaction, 5, AttributionIndexes);
+        await ApplyVersion(connection, transaction, 6, LineDeliveryAndInvitationPrivacy);
     }
 
     private static async Task ApplyVersion(NpgsqlConnection connection, NpgsqlTransaction transaction, int version, string sql)
@@ -168,5 +169,39 @@ public static class PostgresMigrations
             FOREIGN KEY (household_id, user_id) REFERENCES household_members ON DELETE CASCADE
         );
         CREATE INDEX line_household_notification_membership ON line_household_notifications(household_id, user_id);
+        """;
+
+    private const string LineDeliveryAndInvitationPrivacy = """
+        CREATE INDEX household_invitations_email ON household_invitations (lower(email));
+
+        ALTER TABLE line_subscriptions
+            ADD COLUMN rebind_sent BOOLEAN NOT NULL DEFAULT FALSE,
+            ADD COLUMN rebind_started TIMESTAMPTZ,
+            ADD COLUMN rebind_retry_key UUID NOT NULL DEFAULT gen_random_uuid();
+
+        ALTER TABLE line_household_notifications
+            ALTER COLUMN line_user_id TYPE BYTEA USING sha256(convert_to(line_user_id, 'UTF8')),
+            ADD COLUMN disposition TEXT NOT NULL DEFAULT 'uncertain'
+                CHECK (disposition IN ('ready', 'uncertain', 'rejected', 'sent')),
+            ADD COLUMN retry_key UUID,
+            ALTER COLUMN household_id DROP NOT NULL,
+            ALTER COLUMN user_id DROP NOT NULL,
+            DROP CONSTRAINT line_household_notifications_household_id_user_id_fkey,
+            ADD FOREIGN KEY (household_id, user_id) REFERENCES household_members ON DELETE SET NULL;
+        ALTER TABLE line_household_notifications RENAME COLUMN line_user_id TO recipient_hash;
+        UPDATE line_household_notifications SET disposition = 'sent' WHERE sent;
+        ALTER TABLE line_household_notifications DROP COLUMN sent;
+
+        CREATE FUNCTION erase_detached_line_notification() RETURNS trigger LANGUAGE plpgsql AS $$
+        BEGIN
+            IF NEW.household_id IS NULL THEN
+                NEW.message = '';
+            END IF;
+            RETURN NEW;
+        END;
+        $$;
+        CREATE TRIGGER erase_detached_line_notification
+            BEFORE UPDATE OF household_id, user_id ON line_household_notifications
+            FOR EACH ROW EXECUTE FUNCTION erase_detached_line_notification();
         """;
 }

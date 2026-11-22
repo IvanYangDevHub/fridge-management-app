@@ -9,6 +9,49 @@ namespace FreshDays.Tests;
 public class InventoryApiTests
 {
     [Fact]
+    public async Task InventoryWritesRejectIncompatibleKnownFieldsAndPreserveUnknownJson()
+    {
+        await using var database = new PostgresTestDatabase();
+        await database.Initialize();
+        await using var phaseOne = database.CreateFactory();
+        using var google = new GoogleTestIdentityProvider();
+        await using var factory = google.Configure(phaseOne);
+        using var browser = Browser(factory);
+        await SignIn(browser, google.Credential("owner"));
+        var household = await CreateHousehold(browser, "Home");
+        var id = await CreateItem(browser, household, "Milk");
+
+        var invalid = new Dictionary<string, string[]>
+        {
+            ["quantity"] = ["{}", "null", "\"1\"", "0", "-1", "1e400"],
+            ["unit"] = ["[]"],
+            ["category"] = ["{}"],
+            ["location"] = ["{}", "\"garage\""],
+            ["status"] = ["false", "\"missing\""],
+            ["createdAt"] = ["{}"],
+        };
+        foreach (var (field, values) in invalid)
+        foreach (var value in values)
+        {
+            var payload = JsonSerializer.Deserialize<JsonElement>($$"""
+                {"name":"Milk","version":1,"{{field}}":{{value}}}
+                """);
+            Assert.Equal(HttpStatusCode.BadRequest, (await browser.PostAsJsonAsync(household, payload)).StatusCode);
+            Assert.Equal(HttpStatusCode.BadRequest, (await browser.PutAsJsonAsync(ItemPath(household, id), payload)).StatusCode);
+        }
+
+        using var updated = await browser.PutAsJsonAsync(ItemPath(household, id), new
+        {
+            name = "Fresh milk", version = 1, quantity = 1.25, unit = "瓶", category = "dairy", location = "fridge",
+            status = "active", createdAt = "2026-11-23T00:00:00Z", custom = new { labels = new[] { "local" } },
+        });
+        Assert.Equal(HttpStatusCode.OK, updated.StatusCode);
+        var saved = Assert.Single((await browser.GetFromJsonAsync<JsonElement>(household)).EnumerateArray());
+        Assert.Equal(1.25, saved.GetProperty("quantity").GetDouble());
+        Assert.Equal("local", saved.GetProperty("custom").GetProperty("labels")[0].GetString());
+    }
+
+    [Fact]
     public async Task CreatingAnItemReturnsItsVersionAndTheHouseholdCanReadIt()
     {
         await using var database = new PostgresTestDatabase();

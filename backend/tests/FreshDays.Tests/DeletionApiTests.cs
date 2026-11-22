@@ -9,6 +9,36 @@ namespace FreshDays.Tests;
 public sealed partial class MembershipApiTests
 {
     [Fact]
+    public async Task AccountDeletionErasesPendingAndRedeemedInvitationsAcrossHouseholds()
+    {
+        await using var app = await TestApp.Start();
+        using var owner = await app.SignIn("owner");
+        using var member = await app.SignIn("member");
+        var joined = await CreateHousehold(owner, "Joined");
+        var neverJoined = await CreateHousehold(owner, "Never joined");
+        await Admit(owner, member, joined, "member");
+
+        using var unused = await owner.PostAsJsonAsync(neverJoined + "/invitations", new { email = "Member@gmail.com" });
+        unused.EnsureSuccessStatusCode();
+        var token = (await unused.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("token").GetString();
+        using var unrelated = await owner.PostAsJsonAsync(neverJoined + "/invitations", new { email = "outsider@gmail.com" });
+        unrelated.EnsureSuccessStatusCode();
+
+        Assert.Equal(HttpStatusCode.NoContent, (await member.DeleteAsync("/api/auth/account?confirm=true")).StatusCode);
+        var remaining = Assert.Single((await owner.GetFromJsonAsync<JsonElement>(neverJoined + "/invitations")).EnumerateArray());
+        Assert.Equal("outsider@gmail.com", remaining.GetProperty("email").GetString());
+        using var recreated = await app.SignIn("member");
+        Assert.Equal(HttpStatusCode.NotFound,
+            (await recreated.PostAsJsonAsync("/api/households/invitations/redeem", new { token })).StatusCode);
+
+        // Redeemed invitations are intentionally invisible through the API.
+        await using var connection = new NpgsqlConnection(app.ConnectionString);
+        await connection.OpenAsync();
+        await using var stored = new NpgsqlCommand("SELECT count(*) FROM household_invitations WHERE lower(email) = 'member@gmail.com'", connection);
+        Assert.Equal(0L, await stored.ExecuteScalarAsync());
+    }
+
+    [Fact]
     public async Task AccountDeletionRevokesSessionsAndAnonymizesSharedItemsAcrossCurrentAndFormerHouseholds()
     {
         await using var app = await TestApp.Start();
@@ -89,6 +119,7 @@ public sealed partial class MembershipApiTests
         using var member = await app.SignIn("member");
         var household = await CreateHousehold(owner, "First");
         var other = await CreateHousehold(owner, "Second");
+        var invitationOnly = await CreateHousehold(owner, "Invitation only");
         await Admit(owner, member, household, "member");
 
         using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(15));
@@ -110,11 +141,14 @@ public sealed partial class MembershipApiTests
             await Task.Delay(25, timeout.Token);
 
         await Admit(owner, member, other, "member");
+        using var unused = await owner.PostAsJsonAsync(invitationOnly + "/invitations", new { email = "member@gmail.com" }, timeout.Token);
+        unused.EnsureSuccessStatusCode();
         await transaction.CommitAsync(timeout.Token);
         using var response = await deletion;
         Assert.Equal(HttpStatusCode.NoContent, response.StatusCode);
         Assert.Single((await owner.GetFromJsonAsync<JsonElement>(household + "/members")).EnumerateArray());
         Assert.Single((await owner.GetFromJsonAsync<JsonElement>(other + "/members")).EnumerateArray());
+        Assert.Empty((await owner.GetFromJsonAsync<JsonElement>(invitationOnly + "/invitations")).EnumerateArray());
     }
 
     [Fact]

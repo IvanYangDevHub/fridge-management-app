@@ -1,11 +1,12 @@
 import { useMemo, useState, type FormEvent } from 'react';
-import { readInventory, saveInventory, type FoodItem, type Location } from './inventoryApi';
+import { readInventory, safeFood, saveInventory, type FoodItem, type Location } from './inventoryApi';
 import { readShopping, saveShopping } from './shoppingApi';
 import { useListSync } from './useListSync';
 
 type Filter = 'all' | Location;
 
 const locationNames: Record<Location, string> = { fridge: '冷藏', freezer: '冷凍', pantry: '常溫' };
+const units = ['份', '個', '包', '瓶', '盒', '公克'];
 const categoryNames: Record<string, string> = { other: '其他', vegetable: '蔬菜', fruit: '水果', protein: '肉蛋豆', dairy: '乳製品', staple: '主食', seasoning: '調味料' };
 const shelfLife = [
   { words: ['牛奶', '鮮奶', '優格'], days: 7, category: 'dairy' },
@@ -67,10 +68,10 @@ function FridgeLists({ householdId }: { householdId?: string }) {
   function editFood(item: FoodItem) {
     setEditing(item);
     setName(item.name);
-    setQuantity(item.quantity ?? 1);
-    setUnit(item.unit ?? '份');
-    setLocation(item.location ?? 'fridge');
-    setCategory(item.category ?? 'other');
+    setQuantity(item.quantity);
+    setUnit(item.unit);
+    setLocation(item.location);
+    setCategory(Object.hasOwn(categoryNames, item.category) ? item.category : 'other');
     setExpiresAt(item.expiresAt ?? '');
   }
   function submitFood(event: FormEvent) {
@@ -90,7 +91,7 @@ function FridgeLists({ householdId }: { householdId?: string }) {
       if (!expiresAt) { const date = new Date(); date.setDate(date.getDate() + rule.days); setExpiresAt(localDate(date)); }
     }
   }
-  const activeItems = useMemo(() => items.filter((item) => item.status !== 'consumed'), [items]);
+  const activeItems = useMemo(() => items.filter((item) => item.status !== 'consumed').map(safeFood), [items]);
   const visible = useMemo(() => activeItems.filter((item) => filter === 'all' || item.location === filter).sort((a, b) => expiry(a).rank - expiry(b).rank || (a.expiresAt || '9999').localeCompare(b.expiresAt || '9999')), [activeItems, filter]);
   const urgent = useMemo(() => activeItems.filter((item) => expiry(item).rank <= 2), [activeItems]);
   const recipeItems = urgent.length ? urgent : activeItems;
@@ -102,8 +103,8 @@ function FridgeLists({ householdId }: { householdId?: string }) {
       <section className="panel"><div className="section-heading"><div><p className="eyebrow">ADD ITEM</p><h2>{editing ? '編輯食材' : '加入食材'}</h2></div></div>
         <form onSubmit={submitFood} className="form-grid">
           <label>食材名稱<input value={name} onChange={(event) => changeName(event.target.value)} maxLength={60} placeholder="例如：鮮奶" required /></label>
-          <label>數量<input type="number" min="0.1" step="0.1" value={quantity} onChange={(event) => setQuantity(Number(event.target.value))} required /></label>
-          <label>單位<select value={unit} onChange={(event) => setUnit(event.target.value)}>{['份', '個', '包', '瓶', '盒', '公克'].map((value) => <option key={value}>{value}</option>)}</select></label>
+          <label>數量<input type="number" min="0" step="any" value={quantity} onChange={(event) => setQuantity(Number(event.target.value))} required /></label>
+          <label>單位<select value={unit} onChange={(event) => setUnit(event.target.value)}>{[...new Set([...units, unit])].map((value) => <option key={value}>{value}</option>)}</select></label>
           <label>保存位置<select value={location} onChange={(event) => setLocation(event.target.value as Location)}>{Object.entries(locationNames).map(([key, value]) => <option key={key} value={key}>{value}</option>)}</select></label>
           <label>分類<select value={category} onChange={(event) => setCategory(event.target.value)}>{Object.entries(categoryNames).map(([key, value]) => <option key={key} value={key}>{value}</option>)}</select></label>
           <label>到期日<input type="date" value={expiresAt} onChange={(event) => setExpiresAt(event.target.value)} /></label>
@@ -112,7 +113,7 @@ function FridgeLists({ householdId }: { householdId?: string }) {
         </form>
       </section>
       <section className="panel"><div className="section-heading"><div><p className="eyebrow">INVENTORY</p><h2>冰箱庫存</h2></div><div className="filters">{(['all', 'fridge', 'freezer', 'pantry'] as Filter[]).map((value) => <button type="button" key={value} className={`filter ${filter === value ? 'active' : ''}`} onClick={() => setFilter(value)}>{value === 'all' ? '全部' : locationNames[value]}</button>)}</div></div>
-        {visible.length ? <ul className="list">{visible.map((item) => <li className="item" key={item.id}><div><strong>{item.name}</strong><p>{item.quantity} {item.unit} · {locationNames[item.location]} · {categoryNames[item.category] || '其他'} · {item.expiresAt || '未設定到期日'}</p></div><div className="item-actions"><span className={`status ${expiry(item).className}`}>{expiry(item).label}</span>{householdId && <button className="secondary" disabled={inventoryPending} aria-label={`編輯 ${item.name}`} onClick={() => editFood(item)}>編輯</button>}<button className="secondary" disabled={inventoryPending} onClick={() => void updateItems(items.map((entry) => entry.id === item.id ? { ...entry, status: 'consumed' } : entry))}>已用完</button><button className="secondary" disabled={inventoryPending} aria-label={`刪除 ${item.name}`} onClick={() => void updateItems(items.filter((entry) => entry.id !== item.id))}>刪除</button></div></li>)}</ul> : <p className="empty">還沒有食材，從上方加入第一項吧。</p>}
+        {visible.length ? <ul className="list">{visible.map((item) => <li className="item" key={item.id}><div><strong>{item.name}</strong><p>{item.quantity} {item.unit} · {locationNames[item.location]} · {Object.hasOwn(categoryNames, item.category) ? categoryNames[item.category] : '其他'} · {item.expiresAt || '未設定到期日'}</p></div><div className="item-actions"><span className={`status ${expiry(item).className}`}>{expiry(item).label}</span>{householdId && <button className="secondary" disabled={inventoryPending} aria-label={`編輯 ${item.name}`} onClick={() => editFood(item)}>編輯</button>}<button className="secondary" disabled={inventoryPending} onClick={() => void updateItems(items.map((entry) => entry.id === item.id ? { ...entry, status: 'consumed' } : entry))}>已用完</button><button className="secondary" disabled={inventoryPending} aria-label={`刪除 ${item.name}`} onClick={() => void updateItems(items.filter((entry) => entry.id !== item.id))}>刪除</button></div></li>)}</ul> : <p className="empty">還沒有食材，從上方加入第一項吧。</p>}
       </section>
       <div className="two-columns"><section className="panel"><p className="eyebrow">COOK TONIGHT</p><h2>今晚吃什麼</h2>{recipe ? <><h3>{recipe.title}</h3><p>優先使用：{recipeItems.slice(0, 3).map((item) => item.name).join('、')}</p><p>缺少材料：{missing.join('、') || '無'}</p>{missing.length > 0 && <button className="secondary" disabled={shoppingPending} onClick={() => void updateShopping([...shopping, ...missing.filter((ingredient) => !shopping.some((item) => item.name === ingredient)).map((ingredient) => ({ id: crypto.randomUUID(), name: ingredient, completed: false }))])}>加入採買清單</button>}</> : <p className="empty">加入食材後，這裡會出現料理建議。</p>}</section>
         <section className="panel"><p className="eyebrow">SHOPPING LIST</p><h2>採買清單</h2>{shopping.length ? <ul className="list">{shopping.map((item) => <li className="item" key={item.id}><label><input className="check" type="checkbox" disabled={shoppingPending} checked={item.completed} onChange={() => void updateShopping(shopping.map((entry) => entry.id === item.id ? { ...entry, completed: !entry.completed } : entry))} />{item.name}</label><button className="secondary" disabled={shoppingPending} onClick={() => void updateShopping(shopping.filter((entry) => entry.id !== item.id))}>移除</button></li>)}</ul> : <p className="empty">料理缺少的材料會出現在這裡。</p>}</section></div>

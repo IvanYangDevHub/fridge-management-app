@@ -119,13 +119,41 @@ function deferredResponse() {
   return { response, resolve, reject };
 }
 
+test.each(['read', 'write'])('a poll missed during an in-flight %s runs as soon as the list is free', async (busy) => {
+  vi.useFakeTimers();
+  const request = deferredResponse();
+  let records = [milk];
+  let reads = 0;
+  vi.stubGlobal('fetch', vi.fn(async (path: string) => {
+    if (path === shopping) return json([]);
+    if (path === item) return request.response;
+    if (path === inventory) {
+      reads++;
+      return busy === 'read' && reads === 2 ? request.response : json(records);
+    }
+    throw new Error(path);
+  }));
+
+  render(<HouseholdLists householdId="home" />);
+  await act(async () => {});
+  if (busy === 'write') fireEvent.click(screen.getByRole('button', { name: '已用完' }));
+  await act(async () => vi.advanceTimersByTimeAsync(30_000));
+  expect(reads).toBe(busy === 'read' ? 2 : 1);
+
+  records = [{ ...milk, quantity: 5, version: 3 }];
+  await act(async () => request.resolve(busy === 'read' ? json([milk]) : json({ ...milk, status: 'consumed', version: 2 })));
+  expect(screen.getByText('5 瓶 · 冷藏 · 乳製品 · 未設定到期日')).toBeInTheDocument();
+  expect(reads).toBe(busy === 'read' ? 3 : 2);
+});
+
 test.each(['resolve', 'reject'])('a superseded background read can %s without rolling back a local edit', async (outcome) => {
   vi.useFakeTimers();
   const deferredPoll = deferredResponse();
   const deferredWrite = deferredResponse();
   let readCount = 0;
+  let committed = false;
   vi.stubGlobal('fetch', vi.fn(async (path: string) => {
-    if (path === inventory) return ++readCount === 2 ? deferredPoll.response : json([milk]);
+    if (path === inventory) return ++readCount === 2 ? deferredPoll.response : json(committed ? [] : [milk]);
     if (path === shopping) return json([]);
     if (path === item) return deferredWrite.response;
     throw new Error(path);
@@ -143,6 +171,7 @@ test.each(['resolve', 'reject'])('a superseded background read can %s without ro
   expect(screen.getByText('鮮奶', { selector: 'strong' })).toBeInTheDocument();
   await act(async () => vi.advanceTimersByTimeAsync(15_000));
   expect(readCount).toBe(2);
+  committed = true;
   await act(async () => deferredWrite.resolve(json({ ...milk, status: 'consumed', version: 2 })));
   expect(screen.getByText('庫存已儲存')).toBeInTheDocument();
   expect(screen.queryByText('鮮奶', { selector: 'strong' })).not.toBeInTheDocument();
@@ -262,6 +291,35 @@ test('pairing-code mode keeps whole-list writes and its data after a rejected sa
     method: 'PUT', body: expect.stringContaining('"status":"consumed"'),
   }));
   expect(screen.getByText('庫存已儲存')).toBeInTheDocument();
+});
+
+test('migrated inventory with incompatible fields stays usable and keeps unknown JSON', async () => {
+  const legacy = { id: 'legacy', name: '舊食材', version: 1, quantity: {}, unit: { symbol: 'bottle' },
+    location: 'garage', category: 'constructor', expiresAt: ['tomorrow'], status: {}, createdAt: false,
+    custom: { labels: ['local'] } };
+  const fetcher = vi.fn(async (path: string, options?: RequestInit) => {
+    if (path === inventory) return json([legacy, { ...milk, expiresAt: '2026-02-30' }]);
+    if (path === shopping) return json([]);
+    if (path === inventory + '/item?id=legacy' && options?.method === 'PUT') {
+      const saved = JSON.parse(options.body as string);
+      expect(saved).toMatchObject({ custom: { labels: ['local'] }, version: 1 });
+      return json({ ...saved, version: 2 });
+    }
+    throw new Error(path);
+  });
+  vi.stubGlobal('fetch', fetcher);
+  render(<HouseholdLists householdId="home" />);
+  const edit = await screen.findByRole('button', { name: '編輯 舊食材' });
+  expect(screen.getByText('1 份 · 冷藏 · 其他 · 未設定到期日')).toBeInTheDocument();
+  expect(screen.getByText('1 瓶 · 冷藏 · 乳製品 · 未設定到期日')).toBeInTheDocument();
+  fireEvent.click(edit);
+  expect(screen.getByLabelText('數量')).toHaveValue(1);
+  expect(screen.getByLabelText('到期日')).toHaveValue('');
+  fireEvent.click(screen.getByRole('button', { name: '儲存變更' }));
+  expect(await screen.findByText('庫存已儲存')).toBeInTheDocument();
+  expect(fetcher).toHaveBeenCalledWith(inventory + '/item?id=legacy', expect.objectContaining({
+    method: 'PUT', body: expect.stringContaining('"custom":{"labels":["local"]}'),
+  }));
 });
 
 test('legacy item defaults, date suggestions, location filters, and recipe display work in a shared household', async () => {

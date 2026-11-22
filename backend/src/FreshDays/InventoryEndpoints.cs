@@ -52,6 +52,29 @@ internal static class InventoryEndpoints
             return item is null ? Results.Conflict() : Results.Text(item, "application/json");
         });
 
+    private static bool ValidKnownFields(JsonElement item)
+    {
+        foreach (var field in item.EnumerateObject())
+        {
+            var value = field.Value;
+            var valid = field.Name switch
+            {
+                "quantity" => value.ValueKind == JsonValueKind.Number &&
+                    value.GetDouble() is > 0 and <= double.MaxValue,
+                "unit" or "category" or "createdAt" => value.ValueKind == JsonValueKind.String,
+                "location" => value.ValueKind == JsonValueKind.String &&
+                    value.GetString() is "fridge" or "freezer" or "pantry",
+                "status" => value.ValueKind == JsonValueKind.String &&
+                    value.GetString() is "active" or "consumed",
+                _ => true,
+            };
+            if (!valid)
+                return false;
+        }
+
+        return true;
+    }
+
     private static bool ValidId(string id) => !string.IsNullOrWhiteSpace(id) && !id.Contains('\0');
 
     private static async Task<IResult> WithMembership(HttpContext context, Guid householdId, NpgsqlDataSource source,
@@ -82,7 +105,8 @@ internal static class InventoryEndpoints
                 !item.TryGetProperty("name", out var name) ||
                 name.ValueKind != JsonValueKind.String ||
                 string.IsNullOrWhiteSpace(name.GetString()) ||
-                name.GetString()!.Length > 100)
+                name.GetString()!.Length > 100 ||
+                !ValidKnownFields(item))
                 return (default, Results.BadRequest());
 
             if (item.TryGetProperty("expiresAt", out var date) && date.ValueKind != JsonValueKind.Null &&

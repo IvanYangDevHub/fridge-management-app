@@ -8,6 +8,8 @@ type Requests = {
   controller: AbortController;
   revision: number;
   reading: boolean;
+  refreshDue: boolean;
+  refresh: () => Promise<void>;
   saving: boolean;
 };
 
@@ -26,7 +28,7 @@ export function useListSync<T>({ householdId, code }: ListScope, read: ListRead<
     if (!householdId && !code) return;
 
     const controller = new AbortController();
-    const state: Requests = { controller, revision: 0, reading: false, saving: false };
+    const state: Requests = { controller, revision: 0, reading: false, saving: false, refreshDue: true, refresh };
     requests.current = state;
     let loaded = false;
     setReady(false);
@@ -34,7 +36,8 @@ export function useListSync<T>({ householdId, code }: ListScope, read: ListRead<
     setPending(false);
 
     async function refresh() {
-      if (state.reading || state.saving) return;
+      if (!state.refreshDue || controller.signal.aborted || state.reading || state.saving) return;
+      state.refreshDue = false;
       state.reading = true;
       const revision = state.revision;
       try {
@@ -53,11 +56,15 @@ export function useListSync<T>({ householdId, code }: ListScope, read: ListRead<
         }
       } finally {
         state.reading = false;
+        void refresh();
       }
     }
 
     void refresh();
-    const timer = householdId ? setInterval(() => void refresh(), 15_000) : undefined;
+    const timer = householdId ? setInterval(() => {
+      state.refreshDue = true;
+      void refresh();
+    }, 15_000) : undefined;
     return () => {
       controller.abort();
       clearInterval(timer);
@@ -100,6 +107,7 @@ export function useListSync<T>({ householdId, code }: ListScope, read: ListRead<
     } finally {
       state.saving = false;
       if (!signal.aborted) setPending(false);
+      void state.refresh();
     }
   }
 

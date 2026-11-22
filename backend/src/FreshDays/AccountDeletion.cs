@@ -26,6 +26,15 @@ internal static class AccountDeletion
         // waiting for the user lock. Roll back and include it in the next ordered lock pass.
         await using var user = Command(transaction, "SELECT id FROM users WHERE id = @user FOR UPDATE", userId);
         await user.ExecuteScalarAsync(ct);
+
+        // Invitation creation also takes this lock after its household lock. An invitation
+        // that commits before this lock is acquired must be included in the next lock pass.
+        await using var email = Command(transaction, """
+            SELECT lower(email) FROM users WHERE id = @user;
+            """, userId);
+        if (await email.ExecuteScalarAsync(ct) is string address)
+            await InvitationStore.LockEmail(transaction, address, ct);
+
         await using var check = Command(transaction, $"""
             SELECT EXISTS (
                 SELECT 1 FROM ({AffectedHouseholds}) AS affected WHERE NOT (household_id = ANY (@locked))
@@ -46,6 +55,7 @@ internal static class AccountDeletion
             WHERE household_id = ANY (@locked) AND {MatchesAttribution};
             UPDATE shopping_items SET extra = extra - 'createdBy', version = version + 1
             WHERE household_id = ANY (@locked) AND {MatchesAttribution};
+            DELETE FROM household_invitations WHERE household_id = ANY (@locked) AND {MatchesInvitation};
             DELETE FROM users WHERE id = @user;
             """, userId);
         erase.Parameters.AddWithValue("locked", locked);
@@ -80,11 +90,15 @@ internal static class AccountDeletion
              OR lower(extra->>'createdBy') = (SELECT lower(email) FROM users WHERE id = @user))
         """;
 
+    private const string MatchesInvitation = "lower(email) = (SELECT lower(email) FROM users WHERE id = @user)";
+
     private const string AffectedHouseholds = $"""
         SELECT household_id FROM household_members WHERE user_id = @user
         UNION ALL
         SELECT household_id FROM inventory_items WHERE {MatchesAttribution}
         UNION ALL
         SELECT household_id FROM shopping_items WHERE {MatchesAttribution}
+        UNION ALL
+        SELECT household_id FROM household_invitations WHERE {MatchesInvitation}
         """;
 }

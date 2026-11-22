@@ -1,5 +1,3 @@
-using System.Security.Cryptography;
-using System.Text;
 using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
@@ -53,6 +51,11 @@ public sealed class LineService(PostgresStore store, IHttpClientFactory clients,
 
     private const string Rebind = "請登入鮮日子，選擇家庭並重新綁定 LINE，才能查詢到期食材與接收提醒。";
     private const string NoDue = "目前沒有三天內到期的食材。";
+    private static readonly HttpStatusCode?[] DefinitiveRejections =
+    [
+        HttpStatusCode.BadRequest, HttpStatusCode.Unauthorized, HttpStatusCode.Forbidden,
+        HttpStatusCode.NotFound, HttpStatusCode.RequestEntityTooLarge, HttpStatusCode.UnprocessableEntity,
+    ];
 
     private async Task HandleHousehold(string? type, JsonElement source, string? userId, string? replyToken,
         string? text, CancellationToken ct)
@@ -99,6 +102,8 @@ public sealed class LineService(PostgresStore store, IHttpClientFactory clients,
             }, ct))
                 await Reply(replyToken, Rebind, ct);
         }
+        else if (text == "訂閱" || text.StartsWith("訂閱 ", StringComparison.Ordinal))
+            await Reply(replyToken, Rebind, ct);
         else if (text.Equals("ping", StringComparison.OrdinalIgnoreCase))
             await Reply(replyToken, "pong 🥬 鮮日子 LINE Webhook 已連線。", ct);
     }
@@ -125,6 +130,7 @@ public sealed class LineService(PostgresStore store, IHttpClientFactory clients,
         if (local.Hour < 9) return;
         if (config.PhaseTwo)
         {
+            await PushLegacyRebindNotices(local, ct);
             await PushHouseholdDue(local, ct);
             return;
         }
@@ -143,45 +149,77 @@ public sealed class LineService(PostgresStore store, IHttpClientFactory clients,
             catch (Exception ex) { logger.LogWarning(ex, "LINE push failed; will retry"); }
         }
     }
+    private async Task PushLegacyRebindNotices(DateTimeOffset now, CancellationToken ct)
+    {
+        foreach (var lineUserId in await households.LegacyNoticeCandidates(now, ct))
+        {
+            try
+            {
+                await households.WithLineLock(lineUserId, async () =>
+                {
+                    var key = await households.BeginLegacyNotice(lineUserId, now, ct);
+                    if (key is null)
+                        return;
+                    await Push(lineUserId, Rebind, key.Value, ct);
+                    await households.RetireLegacyNotice(lineUserId, ct);
+                }, ct);
+            }
+            catch (Exception ex) when (!ct.IsCancellationRequested)
+            {
+                logger.LogWarning(ex, "LINE rebind notice failed");
+            }
+        }
+    }
+
     private async Task PushHouseholdDue(DateTimeOffset local, CancellationToken ct)
     {
         var day = DateOnly.FromDateTime(local.DateTime);
         foreach (var binding in await households.ReminderCandidates(day, ct))
         {
-            // Persist the exact payload before calling LINE. A restarted worker
-            // retries the same request even if the inventory has since changed.
-            if (!await households.UseBinding(binding, async transaction =>
-            {
-                var inventory = await new InventoryStore(transaction, binding.HouseholdId, ct).Read();
-                var message = DueMessage(inventory, local);
-                if (message is not null)
-                    await LineHouseholdStore.QueueReminder(transaction, binding, day, message, ct);
-            }, ct))
-                continue;
-
             try
             {
-                await households.UseBinding(binding, async transaction =>
-                {
-                    var message = await LineHouseholdStore.PendingReminder(transaction, binding, day, ct);
-                    if (message is null)
-                        return;
-
-                    // The date and LINE account keep the key stable even if a
-                    // membership cascade removes its notification after acceptance.
-                    var identity = FormattableString.Invariant($"freshdays-household:{day.DayNumber}:{binding.LineUserId}");
-                    var digest = SHA256.HashData(Encoding.UTF8.GetBytes(identity));
-                    var key = new Guid(digest.AsSpan(0, 16)).ToString();
-                    await Send("push", new { to = binding.LineUserId, messages = new[] { new { type = "text", text = message } } }, key, ct);
-                    await LineHouseholdStore.MarkReminderSent(transaction, binding, day, ct);
-                }, ct);
+                // Serialize two transactions and the push against other workers and rebinds.
+                await households.WithLineLock(binding.LineUserId, () => PushHouseholdReminder(binding, day, local, ct), ct);
             }
             catch (Exception ex) when (!ct.IsCancellationRequested)
             {
-                logger.LogWarning(ex, "LINE household push failed; will retry");
+                logger.LogWarning(ex, "LINE household push failed; will retry while the binding is current");
             }
         }
     }
+
+    private async Task PushHouseholdReminder(LineBinding binding, DateOnly day, DateTimeOffset local, CancellationToken ct)
+    {
+        LineReminder? pending = null;
+        await households.UseBinding(binding, async transaction =>
+        {
+            var inventory = await new InventoryStore(transaction, binding.HouseholdId, ct).Read();
+            var message = DueMessage(inventory, local);
+            if (message is not null)
+                await LineHouseholdStore.QueueReminder(transaction, binding, day, message, ct);
+            pending = await LineHouseholdStore.BeginReminder(transaction, binding, day, ct);
+        }, ct);
+        if (pending is not { } request)
+            return;
+
+        await households.UseBinding(binding, async transaction =>
+        {
+            var disposition = "sent";
+            try
+            {
+                await Push(binding.LineUserId, request.Message, request.RetryKey, ct);
+            }
+            catch (HttpRequestException ex) when (request.CanReplace && DefinitiveRejections.Contains(ex.StatusCode))
+            {
+                disposition = "rejected";
+                logger.LogWarning(ex, "LINE rejected the first household push attempt");
+            }
+            await LineHouseholdStore.FinishReminder(transaction, binding, day, disposition, ct);
+        }, ct);
+    }
+
+    private Task Push(string lineUserId, string message, Guid retryKey, CancellationToken ct) =>
+        Send("push", new { to = lineUserId, messages = new[] { new { type = "text", text = message } } }, retryKey.ToString(), ct);
 
     private async Task Send(string endpoint, object body, string? retryKey, CancellationToken ct = default)
     {

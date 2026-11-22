@@ -72,11 +72,13 @@ public partial class LineServiceTests
 
         using var phaseTwoClient = phaseTwo.CreateClient();
         await SendWebhook(phaseTwoClient, "訂閱 test-code");
-        Assert.Empty(recorder.Calls);
+        Assert.Contains("重新綁定", Assert.Single(recorder.Calls).Text);
+        await SendWebhook(phaseTwoClient, "訂閱", "U2");
+        Assert.Contains("重新綁定", recorder.Calls[^1].Text);
 
         using var phaseOneClient = phaseOne.CreateClient();
         await SendWebhook(phaseOneClient, "到期");
-        Assert.Contains("請先傳送", Assert.Single(recorder.Calls).Text);
+        Assert.Contains("請先傳送", recorder.Calls[^1].Text);
     }
     [Fact]
     public async Task SubscriptionAndRetryStateSurviveRestarts()

@@ -2,6 +2,7 @@ using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
 using Microsoft.AspNetCore.Mvc.Testing;
+using Npgsql;
 using Xunit;
 
 namespace FreshDays.Tests;
@@ -93,6 +94,43 @@ public class HouseholdApiTests
         Assert.Equal("legacy-rice", shopping.GetProperty("id").GetString());
         Assert.Equal(HttpStatusCode.Forbidden, (await outsider.GetAsync(root + "/inventory")).StatusCode);
         Assert.Equal(HttpStatusCode.Forbidden, (await outsider.GetAsync(root + "/shopping")).StatusCode);
+    }
+
+    [Fact]
+    public async Task WaitingToClaimTheLegacyHouseholdDoesNotBlockAccountDeletion()
+    {
+        await using var database = new PostgresTestDatabase();
+        await database.Initialize();
+        await using var phaseOne = database.CreateFactory();
+        using var google = new GoogleTestIdentityProvider();
+        await using var factory = google.Configure(phaseOne);
+        using var claimant = Browser(factory);
+        await SignIn(claimant, google.Credential("owner"));
+
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+        await using var blocker = new NpgsqlConnection(database.IsolatedConnectionString);
+        await blocker.OpenAsync(timeout.Token);
+        await using var transaction = await blocker.BeginTransactionAsync(timeout.Token);
+        await using var hold = new NpgsqlCommand("""
+            SELECT id FROM households WHERE id = '00000000-0000-0000-0000-000000000001' FOR UPDATE;
+            """, blocker, transaction);
+        await hold.ExecuteScalarAsync(timeout.Token);
+
+        var claim = claimant.PostAsync("/api/households/legacy/claim", null, timeout.Token);
+        await using var observer = new NpgsqlConnection(database.IsolatedConnectionString);
+        await observer.OpenAsync(timeout.Token);
+        await using var blocked = new NpgsqlCommand("""
+            SELECT EXISTS (SELECT 1 FROM pg_stat_activity WHERE @blocker = ANY (pg_blocking_pids(pid)));
+            """, observer);
+        blocked.Parameters.AddWithValue("blocker", blocker.ProcessID);
+        while (await blocked.ExecuteScalarAsync(timeout.Token) is not true)
+            await Task.Delay(25, timeout.Token);
+
+        using var deleted = await claimant.DeleteAsync("/api/auth/account?confirm=true", timeout.Token);
+        Assert.Equal(HttpStatusCode.NoContent, deleted.StatusCode);
+        await transaction.CommitAsync(timeout.Token);
+        using var rejected = await claim;
+        Assert.Equal(HttpStatusCode.Forbidden, rejected.StatusCode);
     }
 
     private static HttpClient Browser(WebApplicationFactory<Program> factory) =>
