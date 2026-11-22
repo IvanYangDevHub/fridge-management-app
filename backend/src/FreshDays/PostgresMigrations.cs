@@ -22,6 +22,7 @@ public static class PostgresMigrations
         await setup.ExecuteNonQueryAsync();
         await ApplyVersion(connection, transaction, 1, InitialSchema);
         await ApplyVersion(connection, transaction, 2, IdentitySchema);
+        await ApplyVersion(connection, transaction, 3, InvitationSchema);
     }
 
     private static async Task ApplyVersion(NpgsqlConnection connection, NpgsqlTransaction transaction, int version, string sql)
@@ -114,5 +115,18 @@ public static class PostgresMigrations
         );
         CREATE INDEX app_sessions_user ON app_sessions(user_id);
         CREATE INDEX app_sessions_expiry ON app_sessions(expires_at);
+        """;
+
+    private const string InvitationSchema = """
+        CREATE TABLE household_invitations (
+            id UUID PRIMARY KEY,
+            household_id UUID NOT NULL REFERENCES households(id) ON DELETE CASCADE,
+            email TEXT NOT NULL,
+            token_hash BYTEA NOT NULL UNIQUE,
+            expires_at TIMESTAMPTZ NOT NULL,
+            redeemed_at TIMESTAMPTZ,
+            revoked_at TIMESTAMPTZ
+        );
+        CREATE INDEX household_invitations_household ON household_invitations(household_id, expires_at, id);
         """;
 }

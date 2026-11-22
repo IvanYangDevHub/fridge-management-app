@@ -61,6 +61,8 @@ export default function AuthApp() {
 
 function GoogleSignIn({ clientId, initialSession }: { clientId: string; initialSession: Session | null }) {
   const [session, setSession] = useState(initialSession);
+  const [invitationToken, setInvitationToken] = useState(() => new URLSearchParams(location.hash.slice(1)).get('invite'));
+  const [preferredHouseholdId, setPreferredHouseholdId] = useState('');
   const [householdVersion, setHouseholdVersion] = useState(0);
   const [message, setMessage] = useState('');
   const [busy, setBusy] = useState(false);
@@ -89,8 +91,31 @@ function GoogleSignIn({ clientId, initialSession }: { clientId: string; initialS
       const response = await fetch('/api/auth/logout', { method: 'POST' });
       if (response.status !== 401) checked(response);
       setSession(null);
+      setPreferredHouseholdId('');
     } catch {
       setMessage('登出失敗，請再試一次。');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function acceptInvitation(token: string) {
+    setBusy(true);
+    setMessage('');
+    try {
+      const response = await fetch('/api/households/invitations/redeem', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ token }),
+      });
+      const household: { id: string; name: string } = await checked(response).json();
+      history.replaceState(null, '', location.pathname + location.search);
+      setInvitationToken(null);
+      setPreferredHouseholdId(household.id);
+      setHouseholdVersion((version) => version + 1);
+      setMessage(`已加入${household.name}。`);
+    } catch {
+      setMessage('無法接受家庭邀請，請確認連結與登入的 Google 帳號。');
     } finally {
       setBusy(false);
     }
@@ -126,15 +151,19 @@ function GoogleSignIn({ clientId, initialSession }: { clientId: string; initialS
     <header className="hero"><div><h1>鮮日子</h1><p className="muted">把冰箱裡的每一份新鮮，好好記下來。</p></div></header>
     <section className="panel">
       {session === null
-        ? <><h2>登入</h2><div inert={busy}><GoogleButton clientId={clientId} onCredential={signIn} /></div></>
+        ? <><h2>登入</h2>
+          {invitationToken && <p>收到家庭邀請，請使用受邀的 Google 帳號登入。</p>}
+          <div inert={busy}><GoogleButton clientId={clientId} onCredential={signIn} /></div></>
         : <><h2>Google 帳號</h2><p>{session.email}</p><div className="item-actions">
+          {invitationToken &&
+            <button className="primary" disabled={busy} onClick={() => void acceptInvitation(invitationToken)}>接受家庭邀請</button>}
           {session.canClaimLegacy &&
             <button className="primary" disabled={busy} onClick={() => void claim(session)}>認領舊家庭</button>}
           <button className="secondary" disabled={busy} onClick={() => void signOut()}>登出</button>
         </div></>}
       <p role="status">{message}</p>
     </section>
-    {session && <HouseholdApp key={`${session.userId}:${householdVersion}`} />}
+    {session && <HouseholdApp key={`${session.userId}:${householdVersion}`} preferredHouseholdId={preferredHouseholdId} />}
   </main>;
 }
 
