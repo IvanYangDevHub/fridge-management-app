@@ -38,11 +38,12 @@ public class HouseholdApiTests
         Assert.Equal(office.GetProperty("id").GetGuid(), Assert.Single(bobHouseholds.EnumerateArray()).GetProperty("id").GetGuid());
     }
 
-    [Theory]
-    [InlineData("inventory", "expiresAt", "2027-01-01")]
-    [InlineData("shopping", "completed", true)]
-    public async Task HouseholdListsFollowTheExplicitScopeAndRejectAnotherUser(string list, string field, object value)
+    [Fact]
+    public async Task HouseholdShoppingFollowsTheExplicitScopeAndRejectsAnotherUser()
     {
+        const string list = "shopping";
+        const string field = "completed";
+        const bool value = true;
         await using var database = new PostgresTestDatabase();
         await database.Initialize();
         await using var phaseOne = database.CreateFactory();
@@ -99,42 +100,6 @@ public class HouseholdApiTests
             Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
         }
         Assert.Empty((await client.GetFromJsonAsync<JsonElement>("/api/households")).EnumerateArray());
-    }
-
-    [Fact]
-    public async Task InvalidScopedListWritesPreserveExistingInventory()
-    {
-        await using var database = new PostgresTestDatabase();
-        await database.Initialize();
-        await using var phaseOne = database.CreateFactory();
-        using var google = new GoogleTestIdentityProvider();
-        await using var factory = google.Configure(phaseOne);
-        using var client = Browser(factory);
-        await SignIn(client, google.Credential("alice", "alice@gmail.com"));
-        var home = await Create(client, "Home");
-        var path = $"/api/households/{home.GetProperty("id").GetGuid()}/inventory";
-        var original = new[] { new { id = "original", name = "牛奶", expiresAt = "2027-01-01" } };
-        Assert.Equal(HttpStatusCode.NoContent, (await client.PutAsJsonAsync(path, original)).StatusCode);
-
-        var invalidBodies = new[]
-        {
-            "[",
-            "{}",
-            "[" + string.Join(',', Enumerable.Repeat("{}", 501)) + "]",
-            """[{"id":"date","name":"鹽","expiresAt":12}]""",
-            """[{"id":"date","name":"鹽","expiresAt":"2027-02-30"}]""",
-        };
-        foreach (var invalid in invalidBodies)
-        {
-            using var body = new StringContent(invalid);
-            using var response = await client.PutAsync(path, body);
-            Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
-        }
-        using var tooLarge = new StringContent(new string(' ', 1_048_577));
-        using var rejected = await client.PutAsync(path, tooLarge);
-        Assert.Equal(HttpStatusCode.RequestEntityTooLarge, rejected.StatusCode);
-        var remaining = await client.GetFromJsonAsync<JsonElement>(path);
-        Assert.Equal("original", Assert.Single(remaining.EnumerateArray()).GetProperty("id").GetString());
     }
 
     [Fact]

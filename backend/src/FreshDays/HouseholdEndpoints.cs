@@ -30,8 +30,7 @@ internal static class HouseholdEndpoints
             return Results.Created($"/api/households/{household.Id}", household);
         });
 
-        routes.MapMethods("/{householdId:guid}/inventory", ["GET", "PUT"],
-            (HttpContext context, Guid householdId, NpgsqlDataSource source) => HouseholdList(context, householdId, "inventory", source));
+        routes.MapInventory();
         routes.MapMethods("/{householdId:guid}/shopping", ["GET", "PUT"],
             (HttpContext context, Guid householdId, NpgsqlDataSource source) => HouseholdList(context, householdId, "shopping", source));
     }
