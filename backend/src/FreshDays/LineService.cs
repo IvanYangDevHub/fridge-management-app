@@ -7,7 +7,7 @@ namespace FreshDays;
 
 public record LineConfig(string Code, string Secret, string Token);
 
-public sealed class LineService(SqliteStore store, IHttpClientFactory clients, LineConfig config, ILogger<LineService> logger)
+public sealed class LineService(PostgresStore store, IHttpClientFactory clients, LineConfig config, ILogger<LineService> logger)
 {
     private static string? String(JsonElement element, string property) => element.ValueKind == JsonValueKind.Object && element.TryGetProperty(property, out var value) && value.ValueKind == JsonValueKind.String ? value.GetString() : null;
     private static JsonElement Child(JsonElement element, string property) => element.ValueKind == JsonValueKind.Object && element.TryGetProperty(property, out var value) ? value : default;
@@ -46,7 +46,7 @@ public sealed class LineService(SqliteStore store, IHttpClientFactory clients, L
     public static DateTimeOffset Taipei(DateTimeOffset utc) => utc.ToOffset(TimeSpan.FromHours(8));
     public async Task<string?> DueMessage(DateTimeOffset now)
     {
-        using var doc = JsonDocument.Parse(await store.ReadInventory());
+        using var doc = JsonDocument.Parse(await store.ReadList("inventory"));
         var items = doc.RootElement.EnumerateArray().Select(x => new FoodItem(String(x, "id") ?? "", String(x, "name") ?? "", String(x, "expiresAt"), String(x, "status")));
         return Expiry.Message(items, DateOnly.FromDateTime(Taipei(now).DateTime));
     }
@@ -56,7 +56,7 @@ public sealed class LineService(SqliteStore store, IHttpClientFactory clients, L
         if (local.Hour < 9) return;
         var message = await DueMessage(now);
         if (message is null) return;
-        var day = local.ToString("yyyy-MM-dd");
+        var day = DateOnly.FromDateTime(local.DateTime);
         foreach (var user in await store.Subscribers())
         {
             var (key, sent) = await store.Notification(day, user);

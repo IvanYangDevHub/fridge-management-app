@@ -2,11 +2,15 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using FreshDays;
+using Npgsql;
 
 var builder = WebApplication.CreateBuilder(args);
 if (string.IsNullOrWhiteSpace(builder.Configuration["ASPNETCORE_URLS"]))
     builder.WebHost.UseUrls(builder.Configuration["PORT"] is { Length: > 0 } port ? $"http://0.0.0.0:{port}" : "http://localhost:3000");
-builder.Services.AddSingleton(sp => new SqliteStore(sp.GetRequiredService<IConfiguration>()["DatabasePath"] ?? sp.GetRequiredService<IConfiguration>()["SQLITE_PATH"] ?? "freshdays.db"));
+builder.Services.AddSingleton(sp => NpgsqlDataSource.Create(
+    sp.GetRequiredService<IConfiguration>().GetConnectionString("FreshDays")
+    ?? throw new InvalidOperationException("ConnectionStrings__FreshDays is required.")));
+builder.Services.AddSingleton<PostgresStore>();
 builder.Services.AddHttpClient();
 builder.Services.AddSingleton(sp => {
     var config = sp.GetRequiredService<IConfiguration>();
@@ -19,16 +23,17 @@ builder.Services.AddSingleton(sp => {
 builder.Services.AddSingleton<LineService>();
 builder.Services.AddHostedService<ExpiryWorker>();
 var app = builder.Build();
+await PostgresMigrations.Apply(app.Services.GetRequiredService<NpgsqlDataSource>());
 var lineConfig = app.Services.GetRequiredService<LineConfig>();
 var code = lineConfig.Code;
 var secret = lineConfig.Secret;
-await app.Services.GetRequiredService<SqliteStore>().Initialize();
 
 app.MapGet("/health", () => Results.Text("ok"));
-app.MapMethods("/api/{list:regex(^(inventory|shopping)$)}", ["GET", "PUT", "POST"], async (HttpContext context, string list, SqliteStore store) =>
+app.MapMethods("/api/{list:regex(^(inventory|shopping)$)}", ["GET", "PUT", "POST"], async (HttpContext context, string list, PostgresStore store) =>
 {
     var provided = context.Request.Headers["x-household-code"].ToString();
     if (!CryptographicOperations.FixedTimeEquals(Encoding.UTF8.GetBytes(provided), Encoding.UTF8.GetBytes(code))) return Results.Unauthorized();
+    list = list.ToLowerInvariant();
     context.Response.Headers.CacheControl = "no-store";
     if (HttpMethods.IsGet(context.Request.Method)) return Results.Text(await store.ReadList(list), "application/json");
     if (context.Request.ContentLength > 1_048_576) return Results.StatusCode(413);
@@ -36,12 +41,14 @@ app.MapMethods("/api/{list:regex(^(inventory|shopping)$)}", ["GET", "PUT", "POST
     {
         using var body = await JsonDocument.ParseAsync(context.Request.Body);
         if (body.RootElement.ValueKind != JsonValueKind.Array || body.RootElement.GetArrayLength() > 500) return Results.BadRequest();
+        var ids = new HashSet<string>(StringComparer.Ordinal);
         foreach (var item in body.RootElement.EnumerateArray())
         {
             if (item.ValueKind != JsonValueKind.Object || !item.TryGetProperty("id", out var id) || id.ValueKind != JsonValueKind.String || string.IsNullOrWhiteSpace(id.GetString()) || !item.TryGetProperty("name", out var name) || name.ValueKind != JsonValueKind.String || string.IsNullOrWhiteSpace(name.GetString()) || name.GetString()!.Length > 100) return Results.BadRequest();
+            if (!ids.Add(id.GetString()!)) return Results.BadRequest();
             if (list == "inventory" && item.TryGetProperty("expiresAt", out var date) && date.ValueKind != JsonValueKind.Null && (date.ValueKind != JsonValueKind.String || !DateOnly.TryParseExact(date.GetString(), "yyyy-MM-dd", out _))) return Results.BadRequest();
         }
-        await store.ReplaceList(list, body.RootElement.GetRawText());
+        if (!await store.ReplaceList(list, body.RootElement.GetRawText())) return Results.BadRequest();
         return Results.NoContent();
     }
     catch (JsonException) { return Results.BadRequest(); }

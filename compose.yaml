@@ -5,12 +5,12 @@ services:
     restart: unless-stopped
     environment:
       ASPNETCORE_URLS: http://0.0.0.0:8080
-      SQLITE_PATH: /data/freshdays.db
+      ConnectionStrings__FreshDays: ${ConnectionStrings__FreshDays:?Set ConnectionStrings__FreshDays in .env}
       LINE_CHANNEL_SECRET: ${LINE_CHANNEL_SECRET:?Set LINE_CHANNEL_SECRET in .env}
       LINE_CHANNEL_ACCESS_TOKEN: ${LINE_CHANNEL_ACCESS_TOKEN:?Set LINE_CHANNEL_ACCESS_TOKEN in .env}
       HOUSEHOLD_CODE: ${HOUSEHOLD_CODE:?Set HOUSEHOLD_CODE in .env}
     volumes:
-      - ./data:/data
+      - ./certs:/etc/freshdays/certs:ro
 
   web:
     build:

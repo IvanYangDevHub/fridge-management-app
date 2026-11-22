@@ -13,3 +13,4 @@ backend/**/TestResults/
 /data/
 line-data.json
 line-data.json.tmp
+/certs/

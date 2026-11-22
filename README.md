@@ -2,7 +2,7 @@
 
 鮮日子是家庭冰箱管理 MVP。使用者可以記錄食材、查看到期狀態、取得簡單料理建議，並讓已訂閱的 LINE 使用者收到到期摘要。
 
-目前版本適合單一家庭展示與開發測試。食材和採買清單由後端儲存在 SQLite；多人使用時尚未提供個人帳號、家庭成員權限及即時畫面更新。
+目前版本適合單一家庭展示與開發測試。食材和採買清單由後端儲存在 PostgreSQL；多人使用時尚未提供個人帳號、家庭成員權限及即時畫面更新。
 
 ## 功能
 
@@ -19,7 +19,7 @@
 React + TypeScript + Vite
           │ /api
           ▼
-ASP.NET Core 10 後端 ── SQLite
+ASP.NET Core 10 後端 ── PostgreSQL
           │
           ├── LINE Webhook：接收與驗證事件
           └── 背景工作：檢查到期食材並呼叫 LINE API
@@ -29,7 +29,7 @@ ASP.NET Core 10 後端 ── SQLite
 
 ```text
 frontend/                        React 前端、Vite 設定與 package-lock.json
-backend/src/FreshDays/           ASP.NET Core API、SQLite 與 LINE 服務
+backend/src/FreshDays/           ASP.NET Core API、PostgreSQL 與 LINE 服務
 backend/tests/FreshDays.Tests/   後端單元與整合測試
 LINE_WEBHOOK.md                  LINE Channel 與 Webhook 設定指南
 SPEC.md                          產品需求與實作狀態
@@ -38,6 +38,7 @@ SPEC.md                          產品需求與實作狀態
 
 ## 開發環境需求
 
+- PostgreSQL 16 以上。以下本機範例使用 Docker 的 PostgreSQL 17。
 - .NET 10 SDK。使用 `dotnet --version` 檢查。
 - Node.js 與 npm。依目前的前端 lockfile，Vite 需要 Node.js `^20.19.0` 或 `>=22.12.0`；可使用 `node --version` 和 `npm --version` 檢查。
 - PowerShell、可用的終端機，以及現代瀏覽器。以下指令以 Windows PowerShell 為例。
@@ -45,14 +46,14 @@ SPEC.md                          產品需求與實作狀態
 
 ## 環境變數
 
-後端啟動時必須提供前三個值。所有 LINE 憑證都應由後端或部署平台管理，不要放進前端、提交至 Git，或貼到公開對話。
+後端啟動時必須提供四個必填值。LINE 憑證、配對碼及資料庫密碼都應由後端或部署平台管理，不要放進前端、提交至 Git，或貼到公開對話。
 
 | 變數 | 必填 | 說明 |
 | --- | --- | --- |
 | `LINE_CHANNEL_SECRET` | 是 | Messaging API Channel 的 secret，用來驗證 Webhook 簽章。 |
 | `LINE_CHANNEL_ACCESS_TOKEN` | 是 | 後端呼叫 LINE Reply／Push API 的 token。 |
 | `HOUSEHOLD_CODE` | 是 | 自行設定的家庭配對碼，用於網站連線與 LINE 訂閱；建議使用長且隨機的值。 |
-| `SQLITE_PATH` | 否 | SQLite 檔案路徑，預設為目前工作目錄下的 `freshdays.db`；部署時應使用持久化磁碟路徑。 |
+| `ConnectionStrings__FreshDays` | 是 | Npgsql 連線字串，指向已建立的 PostgreSQL 資料庫。首次啟動所用的資料庫角色須能建立資料表。 |
 | `PORT` | 否 | 指定時後端監聽 `0.0.0.0` 的該埠；未指定時預設為 `http://localhost:3000`。 |
 | `ASPNETCORE_URLS` | 否 | 指定 ASP.NET Core 監聽網址；設定後優先於上述預設及 `PORT`。 |
 
@@ -60,13 +61,20 @@ SPEC.md                          產品需求與實作狀態
 
 ## 本機啟動
 
-先在專案根目錄開啟第一個 PowerShell 視窗。填入自己的 Channel 憑證和家庭配對碼，再啟動後端：
+在專案根目錄開啟 PowerShell。若本機沒有 PostgreSQL，可建立下列開發容器。
+
+```powershell
+docker run --name freshdays-dev-postgres -e POSTGRES_USER=freshdays_dev -e POSTGRES_PASSWORD=local-dev -e POSTGRES_DB=freshdays_dev -p 127.0.0.1:55432:5432 -d postgres:17-alpine
+docker exec freshdays-dev-postgres pg_isready -U freshdays_dev -d freshdays_dev
+```
+
+確認 PostgreSQL 開始接受連線後，填入自己的 LINE 憑證、家庭配對碼和 PostgreSQL 連線字串，再啟動後端。
 
 ```powershell
 $env:LINE_CHANNEL_SECRET = '你的 Channel secret'
 $env:LINE_CHANNEL_ACCESS_TOKEN = '你的 Channel access token'
 $env:HOUSEHOLD_CODE = '你自訂的家庭配對碼'
-$env:SQLITE_PATH = './freshdays.db'
+$env:ConnectionStrings__FreshDays = 'Host=127.0.0.1;Port=55432;Database=freshdays_dev;Username=freshdays_dev;Password=local-dev'
 
 dotnet run --project backend/src/FreshDays
 ```
@@ -87,7 +95,7 @@ npm ci
 npm run dev
 ```
 
-開啟 Vite 顯示的網址，預設是 `http://localhost:5173`。輸入與後端相同的家庭配對碼後，即可操作食材與採買清單。首次啟動會建立 SQLite 資料庫與資料表。停止任一服務可在該終端機按 `Ctrl+C`。
+開啟 Vite 顯示的網址，預設是 `http://localhost:5173`。輸入與後端相同的家庭配對碼後，即可操作食材與採買清單。首次啟動會在已建立的 PostgreSQL 資料庫執行資料表遷移。停止任一服務可在該終端機按 `Ctrl+C`。
 
 本機若尚未完成 LINE 設定，可暫時以測試用非空字串啟動後端並測試網站；但 LINE 回覆與推送必須使用有效憑證及公開 Webhook 才能驗證。
 
@@ -99,7 +107,7 @@ npm run dev
 4. 查看料理建議，將缺少材料加入採買清單，勾選或移除後刷新確認保存結果。
 5. 完成 LINE 設定後傳送 `ping`，再傳送 `訂閱 你的家庭配對碼` 與 `到期`；不想接收時傳送 `取消訂閱`。
 
-後端在台灣時間 09:00 之後檢查已過期或三天內到期的食材。伺服器需持續運行；如果當時關閉，當天稍後啟動會再次檢查。每位訂閱者的當日發送狀態與 retry key 儲存在 SQLite。
+後端在台灣時間 09:00 之後檢查已過期或三天內到期的食材。伺服器需持續運行；如果當時關閉，當天稍後啟動會再次檢查。每位訂閱者的當日發送狀態與 retry key 儲存在 PostgreSQL。
 
 ## API 概覽
 
@@ -114,17 +122,18 @@ npm run dev
 | `PUT /api/shopping` | 以 JSON 陣列取代整份採買清單。 |
 | `POST /webhook/line` | 驗證 `x-line-signature` 後處理 LINE 事件。 |
 
-清單端點也接受 `POST` 進行整份清單取代。不同瀏覽器若同時修改，後送出的整份清單可能覆蓋先前的變更；目前沒有衝突偵測。不要將此配對碼展示版直接當成完整的多人權限系統。
+清單端點也接受 `POST` 進行整份清單取代。每份清單的項目 ID 必須唯一。不同瀏覽器若同時修改，後送出的整份清單可能覆蓋先前的變更；目前沒有衝突偵測。不要將此配對碼展示版直接當成完整的多人權限系統。
 
 ## 測試與建置
 
-在專案根目錄執行後端測試，並輸出 Coverlet 的 Cobertura 覆蓋率報告：
+將 `FRESHDAYS_TEST_POSTGRES` 指向可拋棄的 PostgreSQL 測試資料庫。整合測試為每個案例建立並清除獨立的 schema，測試角色須有建立 schema 的權限。以下範例使用前述本機容器。
 
 ```powershell
+$env:FRESHDAYS_TEST_POSTGRES = 'Host=127.0.0.1;Port=55432;Database=freshdays_dev;Username=freshdays_dev;Password=local-dev'
 dotnet test backend/tests/FreshDays.Tests --collect:"XPlat Code Coverage"
 ```
 
-命令完成後會顯示 `coverage.cobertura.xml` 的路徑。測試包括到期狀態、SQLite 持久化、API、LINE 簽章與通知重試；測試中的 LINE API 會以替身模擬，不會發送真實訊息。查看報告時請同時檢查行與分支覆蓋率，並確認涵蓋範圍是整個後端產品程式。
+命令完成後會顯示 `coverage.cobertura.xml` 的路徑。測試包括到期狀態、PostgreSQL 持久化、API、LINE 簽章與通知重試；測試中的 LINE API 會以替身模擬，不會發送真實訊息。查看報告時請同時檢查行與分支覆蓋率，並確認涵蓋範圍是整個後端產品程式。
 
 前端型別檢查與正式建置：
 
@@ -141,16 +150,16 @@ DigitalOcean Droplet 的 Docker Compose、Caddy、主機設定、LINE 驗收及�
 
 詳細的 LINE Official Account、Channel secret、access token、Webhook URL、驗證與測試流程請見 [LINE_WEBHOOK.md](LINE_WEBHOOK.md)。注意 access token 的有效期及換發；目前服務不會自動換發 token。
 
-部署時，後端需要持續運行、可供 LINE 存取的 HTTPS 網址及持久化 SQLite 儲存空間。設定 `SQLITE_PATH` 指向持久化磁碟，只執行一個後端實例，並安排備份與通知失敗監控。React 可獨立部署為靜態網站，但生產環境仍需將同網域的 `/api` 反向代理至後端；Vite 的開發代理不會自動套用到生產環境。
+部署時，後端需要持續運行、可供 LINE 存取的 HTTPS 網址及 DigitalOcean 受管 PostgreSQL。設定 `ConnectionStrings__FreshDays` 後只執行一個後端實例，並安排備份與通知失敗監控。React 可獨立部署為靜態網站，但生產環境仍需將同網域的 `/api` 反向代理至後端；Vite 的開發代理不會自動套用到生產環境。
 
 ## 常見問題
 
 | 問題 | 檢查方式 |
 | --- | --- |
-| 後端啟動時顯示缺少設定 | 確認目前終端機已設定三個必填變數，再重新啟動。 |
+| 後端啟動時顯示缺少設定 | 確認目前終端機已設定四個必填變數，再重新啟動。 |
 | 網頁顯示配對碼不正確 | 前端輸入的值須與後端 `HOUSEHOLD_CODE` 完全相同。 |
 | 網頁無法讀取資料 | 確認後端正在 `localhost:3000` 運行，且 Vite `/api` 代理指向正確埠號。 |
-| 重啟後資料不見 | 確認啟動時的工作目錄與 `SQLITE_PATH`；部署環境需使用持久化磁碟。 |
+| 重啟後資料不見 | 確認重新啟動前後的 `ConnectionStrings__FreshDays` 都指向同一個 PostgreSQL 資料庫。 |
 | LINE Verify 失敗或收不到訊息 | 檢查公開 HTTPS URL、`/webhook/line`、簽章 secret、token 與 Use webhook 設定；參見 LINE 設定指南。 |
 
 ## 目前限制
