@@ -2,7 +2,6 @@ using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
 using Microsoft.AspNetCore.Mvc.Testing;
-using Npgsql;
 using Xunit;
 
 namespace FreshDays.Tests;
@@ -275,17 +274,15 @@ public class ShoppingApiTests
         public async Task<HttpClient> Join(string subject)
         {
             var client = Browser();
-            var user = await SignIn(client, subject);
-            // The invitation API is a separate issue. Seed this membership and exercise shopping only over HTTP.
-            await using var connection = new NpgsqlConnection(database.IsolatedConnectionString);
-            await connection.OpenAsync();
-            await using var command = new NpgsqlCommand("""
-                INSERT INTO household_members (household_id, user_id, role)
-                VALUES (@household, @user, 'member');
-                """, connection);
-            command.Parameters.AddWithValue("household", Id);
-            command.Parameters.AddWithValue("user", user);
-            await command.ExecuteNonQueryAsync();
+            await SignIn(client, subject);
+            using var invitation = await Owner.PostAsJsonAsync($"/api/households/{Id}/invitations", new
+            {
+                email = $"{subject}@gmail.com",
+            });
+            invitation.EnsureSuccessStatusCode();
+            var token = (await invitation.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("token").GetString();
+            using var accepted = await client.PostAsJsonAsync("/api/households/invitations/redeem", new { token });
+            accepted.EnsureSuccessStatusCode();
             return client;
         }
 
@@ -294,14 +291,13 @@ public class ShoppingApiTests
             BaseAddress = new("https://localhost"),
         });
 
-        public async Task<Guid> SignIn(HttpClient client, string subject)
+        public async Task SignIn(HttpClient client, string subject)
         {
             using var response = await client.PostAsJsonAsync("/api/auth/google", new
             {
                 credential = google.Credential(subject, $"{subject}@gmail.com"),
             });
             response.EnsureSuccessStatusCode();
-            return (await response.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("userId").GetGuid();
         }
 
         public async ValueTask DisposeAsync()
