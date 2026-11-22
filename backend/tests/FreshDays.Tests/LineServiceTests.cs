@@ -4,6 +4,7 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Configuration;
 using Xunit;
 
 namespace FreshDays.Tests;
@@ -47,6 +48,28 @@ public class LineServiceTests
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
     }
 
+    [Fact]
+    public async Task SignedWebhookCannotSubscribeWithTheOldCodeAfterTheSecondCutover()
+    {
+        await using var database = new PostgresTestDatabase();
+        await database.Initialize();
+        using var recorder = new Recorder();
+        await using var phaseOne = database.CreateFactory(recorder);
+        await using var phaseTwo = phaseOne.WithWebHostBuilder(builder => builder.ConfigureAppConfiguration((_, settings) =>
+            settings.AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["Product:PhaseTwo"] = "true",
+                ["Auth:GoogleClientId"] = "freshdays-test-client",
+            })));
+
+        using var phaseTwoClient = phaseTwo.CreateClient();
+        await SendWebhook(phaseTwoClient, "訂閱 test-code");
+        Assert.Empty(recorder.Calls);
+
+        using var phaseOneClient = phaseOne.CreateClient();
+        await SendWebhook(phaseOneClient, "到期");
+        Assert.Contains("請先傳送", Assert.Single(recorder.Calls).Text);
+    }
     [Fact]
     public async Task SubscriptionAndRetryStateSurviveRestarts()
     {

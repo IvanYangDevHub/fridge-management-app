@@ -8,7 +8,10 @@ services:
       ConnectionStrings__FreshDays: ${ConnectionStrings__FreshDays:?Set ConnectionStrings__FreshDays in .env}
       LINE_CHANNEL_SECRET: ${LINE_CHANNEL_SECRET:?Set LINE_CHANNEL_SECRET in .env}
       LINE_CHANNEL_ACCESS_TOKEN: ${LINE_CHANNEL_ACCESS_TOKEN:?Set LINE_CHANNEL_ACCESS_TOKEN in .env}
-      HOUSEHOLD_CODE: ${HOUSEHOLD_CODE:?Set HOUSEHOLD_CODE in .env}
+      HOUSEHOLD_CODE: ${HOUSEHOLD_CODE:-}
+      Product__PhaseTwo: ${Product__PhaseTwo:-false}
+      Auth__GoogleClientId: ${Auth__GoogleClientId:-}
+      Auth__LegacyOwnerEmail: ${Auth__LegacyOwnerEmail:-}
     volumes:
       - ./certs:/etc/freshdays/certs:ro
 

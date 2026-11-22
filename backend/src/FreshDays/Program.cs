@@ -12,25 +12,31 @@ builder.Services.AddSingleton(sp => NpgsqlDataSource.Create(
     ?? throw new InvalidOperationException("ConnectionStrings__FreshDays is required.")));
 builder.Services.AddSingleton<PostgresStore>();
 builder.Services.AddHttpClient();
+builder.Services.AddAppSessions();
 builder.Services.AddSingleton(sp => {
     var config = sp.GetRequiredService<IConfiguration>();
     var code = config["HouseholdCode"] ?? config["HOUSEHOLD_CODE"] ?? "";
     var secret = config["Line:ChannelSecret"] ?? config["LINE_CHANNEL_SECRET"] ?? "";
     var token = config["Line:AccessToken"] ?? config["LINE_CHANNEL_ACCESS_TOKEN"] ?? "";
-    if (string.IsNullOrWhiteSpace(code) || string.IsNullOrWhiteSpace(secret) || string.IsNullOrWhiteSpace(token)) throw new InvalidOperationException("HOUSEHOLD_CODE, LINE_CHANNEL_SECRET and LINE_CHANNEL_ACCESS_TOKEN are required.");
+    if (!config.GetValue<bool>("Product:PhaseTwo") && string.IsNullOrWhiteSpace(code)) throw new InvalidOperationException("HOUSEHOLD_CODE is required in phase one.");
+    if (string.IsNullOrWhiteSpace(secret) || string.IsNullOrWhiteSpace(token)) throw new InvalidOperationException("LINE_CHANNEL_SECRET and LINE_CHANNEL_ACCESS_TOKEN are required.");
     return new LineConfig(code, secret, token);
 });
 builder.Services.AddSingleton<LineService>();
 builder.Services.AddHostedService<ExpiryWorker>();
 var app = builder.Build();
+var phaseTwo = app.Configuration.GetValue<bool>("Product:PhaseTwo");
 await PostgresMigrations.Apply(app.Services.GetRequiredService<NpgsqlDataSource>());
 var lineConfig = app.Services.GetRequiredService<LineConfig>();
 var code = lineConfig.Code;
 var secret = lineConfig.Secret;
 
 app.MapGet("/health", () => Results.Text("ok"));
+app.MapAppSessions(phaseTwo);
+
 app.MapMethods("/api/{list:regex(^(inventory|shopping)$)}", ["GET", "PUT", "POST"], async (HttpContext context, string list, PostgresStore store) =>
 {
+    if (phaseTwo) return Results.NotFound();
     var provided = context.Request.Headers["x-household-code"].ToString();
     if (!CryptographicOperations.FixedTimeEquals(Encoding.UTF8.GetBytes(provided), Encoding.UTF8.GetBytes(code))) return Results.Unauthorized();
     list = list.ToLowerInvariant();
@@ -66,7 +72,8 @@ app.MapPost("/webhook/line", async (HttpContext context, LineService line) =>
     {
         using var doc = JsonDocument.Parse(body);
         if (!doc.RootElement.TryGetProperty("events", out var events) || events.ValueKind != JsonValueKind.Array) return Results.BadRequest();
-        foreach (var item in events.EnumerateArray()) await line.Handle(item);
+        if (!phaseTwo)
+            foreach (var item in events.EnumerateArray()) await line.Handle(item);
         return Results.Ok();
     }
     catch (JsonException) { return Results.BadRequest(); }

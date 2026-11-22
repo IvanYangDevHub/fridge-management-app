@@ -3,6 +3,7 @@
 !.env.example
 node_modules/
 frontend/dist/
+frontend/coverage/
 frontend/*.tsbuildinfo
 backend/**/bin/
 backend/**/obj/

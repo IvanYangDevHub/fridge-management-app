@@ -14,6 +14,7 @@ public static class PostgresMigrations
             """, connection, transaction);
         await setup.ExecuteNonQueryAsync();
         await ApplyVersion(connection, transaction, 1, InitialSchema);
+        await ApplyVersion(connection, transaction, 2, IdentitySchema);
         await transaction.CommitAsync();
     }
 
@@ -75,5 +76,37 @@ public static class PostgresMigrations
             sent BOOLEAN NOT NULL DEFAULT FALSE,
             PRIMARY KEY (household_id, day, user_id)
         );
+        """;
+
+    private const string IdentitySchema = """
+        CREATE TABLE users (
+            id UUID PRIMARY KEY,
+            google_sub TEXT NOT NULL UNIQUE,
+            email TEXT NOT NULL,
+            google_email_authoritative BOOLEAN NOT NULL DEFAULT FALSE
+        );
+
+        CREATE TABLE household_members (
+            household_id UUID NOT NULL REFERENCES households(id) ON DELETE CASCADE,
+            user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            role TEXT NOT NULL CHECK (role IN ('owner', 'member')),
+            PRIMARY KEY (household_id, user_id)
+        );
+        CREATE UNIQUE INDEX household_single_owner ON household_members(household_id) WHERE role = 'owner';
+        CREATE INDEX household_members_user ON household_members(user_id, household_id);
+
+        CREATE TABLE legacy_household_claim (
+            singleton BOOLEAN PRIMARY KEY CHECK (singleton),
+            claimed BOOLEAN NOT NULL DEFAULT FALSE
+        );
+        INSERT INTO legacy_household_claim (singleton) VALUES (TRUE);
+
+        CREATE TABLE app_sessions (
+            token_hash BYTEA PRIMARY KEY,
+            user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            expires_at TIMESTAMPTZ NOT NULL
+        );
+        CREATE INDEX app_sessions_user ON app_sessions(user_id);
+        CREATE INDEX app_sessions_expiry ON app_sessions(expires_at);
         """;
 }

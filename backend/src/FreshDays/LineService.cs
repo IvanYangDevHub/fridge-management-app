@@ -84,7 +84,7 @@ public sealed class ExpiryWorker(LineService line, IConfiguration config, ILogge
 {
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        if (config.GetValue<bool>("DisableWorker")) return;
+        if (config.GetValue<bool>("Product:PhaseTwo") || config.GetValue<bool>("DisableWorker")) return;
         using var timer = new PeriodicTimer(TimeSpan.FromMinutes(1));
         do
         {
