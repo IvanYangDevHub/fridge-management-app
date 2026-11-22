@@ -2,6 +2,7 @@ import { useEffect, useState, type FormEvent } from 'react';
 import { HouseholdLists } from './App';
 import HouseholdInvitations from './HouseholdInvitations';
 import HouseholdMembership from './HouseholdMembership';
+import HouseholdLineBinding from './HouseholdLineBinding';
 
 type Household = { id: string; name: string; role: 'owner' | 'member' };
 
@@ -86,6 +87,7 @@ export default function HouseholdApp({ preferredHouseholdId }: { preferredHouseh
       onLeave={(id) => setHouseholds((current) => current.filter((household) => household.id !== id))}
       onTransfer={(id) => setHouseholds((current) => current.map((household) =>
         household.id === id ? { ...household, role: 'member' } : household))} />}
+    {selected && <HouseholdLineBinding key={'line-' + selected.id} householdId={selected.id} householdName={selected.name} />}
     {selected && <HouseholdLists key={selected.id} householdId={selected.id} />}
   </>;
 }

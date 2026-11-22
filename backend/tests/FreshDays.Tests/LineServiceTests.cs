@@ -9,14 +9,15 @@ using Xunit;
 
 namespace FreshDays.Tests;
 
-public class LineServiceTests
+public partial class LineServiceTests
 {
-    private sealed class Recorder : HttpMessageHandler, IHttpClientFactory
+    private sealed class Recorder : HttpMessageHandler
     {
-        public List<(string Endpoint, string Text, string? RetryKey)> Calls { get; } = [];
+        public List<(string Endpoint, string Text, string? RetryKey, string? To)> Calls { get; } = [];
         public Queue<HttpStatusCode> PushResults { get; } = new();
-
-        public HttpClient CreateClient(string name) => new(this, false);
+        public bool ConflictAccepted { get; set; }
+        public Func<string?, CancellationToken, Task>? WaitForPush { get; set; }
+        public HttpStatusCode ReplyStatus { get; set; } = HttpStatusCode.OK;
 
         protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
         {
@@ -24,19 +25,26 @@ public class LineServiceTests
             var endpoint = request.RequestUri!.Segments[^1];
             var text = body.RootElement.GetProperty("messages")[0].GetProperty("text").GetString()!;
             var retryKey = request.Headers.TryGetValues("X-Line-Retry-Key", out var keys) ? keys.Single() : null;
-            Calls.Add((endpoint, text, retryKey));
-            var status = endpoint == "push" ? PushResults.Dequeue() : HttpStatusCode.OK;
-            return new HttpResponseMessage(status);
+            var to = body.RootElement.TryGetProperty("to", out var target) ? target.GetString() : null;
+            Calls.Add((endpoint, text, retryKey, to));
+            if (endpoint == "push" && WaitForPush is not null)
+                await WaitForPush(to, cancellationToken);
+            var status = endpoint == "push" ? PushResults.Dequeue() : ReplyStatus;
+            var response = new HttpResponseMessage(status);
+            if (status == HttpStatusCode.Conflict && ConflictAccepted)
+                response.Headers.Add("x-line-accepted-request-id", "accepted");
+            return response;
         }
     }
 
-    private static async Task SendWebhook(HttpClient client, string text)
+    private static async Task SendWebhook(HttpClient client, string text, string? userId = "U1", string sourceType = "user",
+        string type = "message", string? replyToken = "reply", string messageType = "text")
     {
         var body = JsonSerializer.SerializeToUtf8Bytes(new
         {
             events = new[]
             {
-                new { type = "message", source = new { userId = "U1" }, replyToken = "reply", message = new { type = "text", text } }
+                new { type, source = new { type = sourceType, userId }, replyToken, message = new { type = messageType, text } }
             }
         });
         using var request = new HttpRequestMessage(HttpMethod.Post, "/webhook/line")

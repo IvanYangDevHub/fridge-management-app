@@ -128,7 +128,7 @@ npm run dev
 
 完成 PostgreSQL 搬遷後，第一階段使用預設設定 `Product__PhaseTwo=false` 與原有的 `HOUSEHOLD_CODE`。準備第二階段時，在 Google Auth Platform 建立 Web application OAuth 用戶端，並將鮮日子的 HTTPS 網站加入 Authorized JavaScript origins。[Google 用戶端設定](https://developers.google.com/identity/gsi/web/guides/get-google-api-clientid)
 
-在後端或 Compose 的 `.env` 設定 `Auth__GoogleClientId` 為該用戶端 ID，並填寫 `Auth__LegacyOwnerEmail`。認領者需使用指定且已驗證的 Gmail 或 Google Workspace 帳號。第二階段切換時設為 `Product__PhaseTwo=true`，由原管理者登入並按「認領舊家庭」。認領只會成功一次，原清單會留在同一個家庭。正式切換前，請完成第二階段的家庭清單與 LINE 功能驗收。
+在後端或 Compose 的 `.env` 設定 `Auth__GoogleClientId` 為該用戶端 ID，並填寫 `Auth__LegacyOwnerEmail`。認領者需使用指定且已驗證的 Gmail 或 Google Workspace 帳號。第二階段切換時設為 `Product__PhaseTwo=true`，由原管理者登入並按「認領舊家庭」。認領只會成功一次，原清單會留在同一個家庭。既有 LINE 訂閱者需登入選擇家庭，再依 LINE 指令重新綁定。[LINE 家庭綁定步驟](LINE_WEBHOOK.md#第二階段家庭綁定)
 
 | 方法與路徑 | 第二階段用途 |
 | --- | --- |
@@ -137,6 +137,7 @@ npm run dev
 | `GET /api/auth/session` | 回傳目前使用者及舊家庭認領資格。 |
 | `POST /api/auth/logout` | 登出並撤銷目前的工作階段。 |
 | `POST /api/households/legacy/claim` | 若符合資格且尚未認領，取得舊家庭擁有權。 |
+| `POST /api/households/{householdId}/line-binding` | 家庭成員取得有效 10 分鐘的一次性私訊指令。 |
 
 第二階段使用 HTTPS 站台的 HttpOnly Cookie。伺服器驗證工作階段並在七天後使其失效。欲在本機測試 Google 登入，請將使用的開發站台來源也加入 Google 用戶端的允許清單。
 

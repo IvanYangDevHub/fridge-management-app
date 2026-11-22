@@ -31,6 +31,12 @@ internal static class HouseholdEndpoints
             return Results.Created($"/api/households/{household.Id}", household);
         });
 
+        routes.MapPost("/{householdId:guid}/line-binding", async (Guid householdId, HttpContext context, LineHouseholdStore store) =>
+        {
+            var token = await store.CreateChallenge(householdId, AppSessions.UserId(context.User), context.RequestAborted);
+            return token is null ? Results.Forbid() : Results.Ok(new { command = $"綁定 {token}" });
+        });
+
         routes.MapInventory();
         routes.MapShopping();
     }

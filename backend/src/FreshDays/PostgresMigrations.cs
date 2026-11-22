@@ -23,6 +23,7 @@ public static class PostgresMigrations
         await ApplyVersion(connection, transaction, 1, InitialSchema);
         await ApplyVersion(connection, transaction, 2, IdentitySchema);
         await ApplyVersion(connection, transaction, 3, InvitationSchema);
+        await ApplyVersion(connection, transaction, 4, LineHouseholdSchema);
     }
 
     private static async Task ApplyVersion(NpgsqlConnection connection, NpgsqlTransaction transaction, int version, string sql)
@@ -128,5 +129,36 @@ public static class PostgresMigrations
             revoked_at TIMESTAMPTZ
         );
         CREATE INDEX household_invitations_household ON household_invitations(household_id, expires_at, id);
+        """;
+
+    private const string LineHouseholdSchema = """
+        CREATE TABLE line_binding_challenges (
+            token_hash BYTEA PRIMARY KEY,
+            household_id UUID NOT NULL,
+            user_id UUID NOT NULL,
+            expires_at TIMESTAMPTZ NOT NULL,
+            FOREIGN KEY (household_id, user_id) REFERENCES household_members ON DELETE CASCADE
+        );
+        CREATE INDEX line_binding_challenge_membership ON line_binding_challenges(household_id, user_id, expires_at);
+
+        CREATE TABLE line_bindings (
+            line_user_id TEXT PRIMARY KEY,
+            household_id UUID NOT NULL,
+            user_id UUID NOT NULL,
+            FOREIGN KEY (household_id, user_id) REFERENCES household_members ON DELETE CASCADE
+        );
+        CREATE INDEX line_binding_membership ON line_bindings(household_id, user_id);
+
+        CREATE TABLE line_household_notifications (
+            line_user_id TEXT NOT NULL,
+            day DATE NOT NULL,
+            household_id UUID NOT NULL,
+            user_id UUID NOT NULL,
+            message TEXT NOT NULL,
+            sent BOOLEAN NOT NULL DEFAULT FALSE,
+            PRIMARY KEY (line_user_id, day),
+            FOREIGN KEY (household_id, user_id) REFERENCES household_members ON DELETE CASCADE
+        );
+        CREATE INDEX line_household_notification_membership ON line_household_notifications(household_id, user_id);
         """;
 }

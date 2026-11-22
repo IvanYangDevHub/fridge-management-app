@@ -27,7 +27,7 @@ internal sealed class PostgresTestDatabase : IAsyncDisposable
         await command.ExecuteNonQueryAsync();
     }
 
-    public WebApplicationFactory<Program> CreateFactory(IHttpClientFactory? lineClient = null) =>
+    public WebApplicationFactory<Program> CreateFactory(HttpMessageHandler? lineClient = null) =>
         new WebApplicationFactory<Program>().WithWebHostBuilder(builder =>
             builder.ConfigureAppConfiguration((_, config) =>
                 config.AddInMemoryCollection(new Dictionary<string, string?>
@@ -41,7 +41,7 @@ internal sealed class PostgresTestDatabase : IAsyncDisposable
                 .ConfigureTestServices(services =>
                 {
                     if (lineClient is not null)
-                        services.AddSingleton(lineClient);
+                        services.AddHttpClient("LineMessaging").ConfigurePrimaryHttpMessageHandler(() => lineClient);
                 }));
 
     public async ValueTask DisposeAsync()

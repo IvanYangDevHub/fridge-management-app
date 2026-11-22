@@ -50,6 +50,12 @@ Webhook URL 格式為 `https://你的後端網域/webhook/line`。React 生產�
 7. 伺服器持續運作時，每天台灣時間 09:00 後會檢查一次庫存；若有已過期或三天內到期食材，就向已訂閱者推送摘要。若 09:00 時伺服器未運作，啟動後也會補做當日檢查。
 8. 若官方帳號的自動回覆也會回訊，可在 LINE Official Account Manager 檢查回應設定，避免測試時看到重複訊息。
 
+## 第二階段家庭綁定
+
+設定 `Product__PhaseTwo=true` 後，原訂閱者需要重新綁定才會收到家庭提醒。登入鮮日子，選擇要接收提醒的家庭，按「產生 LINE 綁定指令」，並在 10 分鐘內把指令私訊給鮮日子 LINE 官方帳號。收到「LINE 綁定完成」後，即可傳送「到期」查詢該家庭。每個 LINE 帳號一次綁定一個家庭，重新綁定會改用新選的家庭。「取消訂閱」會解除綁定。退出家庭或遭移除時，綁定與待使用的指令一併失效。
+
+每日提醒使用台灣時間，自 09:00 起檢查。服務會記住當日推送內容並在重試時使用相同的 LINE retry key。排程送出前會再次確認綁定及家庭成員資格。LINE 已接受當日提醒後才改綁時，新家庭的提醒從隔日開始。[LINE 重試機制](https://developers.line.biz/en/docs/messaging-api/retrying-api-request/)
+
 ## 故障排查
 
 | 現象 | 檢查 |
@@ -59,6 +65,6 @@ Webhook URL 格式為 `https://你的後端網域/webhook/line`。React 生產�
 | Verify 成功但 `ping` 沒回覆 | 已開啟 Use webhook、access token 正確且未過期，並檢查伺服器的 LINE reply HTTP 狀態紀錄。 |
 | 訊息重複 | 檢查官方帳號既有的自動回應設定。 |
 
-伺服器在 PostgreSQL 保存庫存、採買清單、LINE 訂閱者與每位訂閱者每日的發送紀錄。部署時只執行一個後端實例，以便由同一個背景工作發送每日提醒。這是單一家庭展示版，尚未提供個人登入與完整家庭權限。共用資料由後端提供，已連線的其他瀏覽器重新整理後可讀到最新內容，但畫面不會即時自動更新。請勿公開配對碼；換碼不會自動取消既有訂閱者。LINE 推送失敗時會保留每位訂閱者的 retry key 以供重試，請監控錯誤紀錄。
+伺服器在 PostgreSQL 保存庫存、採買清單、LINE 訂閱者與每位訂閱者每日的發送紀錄。部署時只執行一個後端實例，以便由同一個背景工作發送每日提醒。第一階段沿用共同配對碼，換碼後既有訂閱仍有效。請勿公開配對碼。LINE 推送失敗時會保留每位訂閱者的 retry key 以供重試，請監控錯誤紀錄。
 
 參考：[建立 Bot](https://developers.line.biz/en/docs/messaging-api/building-bot/)、[接收 Webhook](https://developers.line.biz/en/docs/messaging-api/receiving-messages/)、[簽章驗證](https://developers.line.biz/en/docs/messaging-api/verify-webhook-signature/)、[回覆訊息](https://developers.line.biz/en/docs/messaging-api/sending-messages/)。

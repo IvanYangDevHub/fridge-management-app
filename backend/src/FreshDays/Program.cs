@@ -22,9 +22,10 @@ builder.Services.AddSingleton(sp => {
     var token = config["Line:AccessToken"] ?? config["LINE_CHANNEL_ACCESS_TOKEN"] ?? "";
     if (!config.GetValue<bool>("Product:PhaseTwo") && string.IsNullOrWhiteSpace(code)) throw new InvalidOperationException("HOUSEHOLD_CODE is required in phase one.");
     if (string.IsNullOrWhiteSpace(secret) || string.IsNullOrWhiteSpace(token)) throw new InvalidOperationException("LINE_CHANNEL_SECRET and LINE_CHANNEL_ACCESS_TOKEN are required.");
-    return new LineConfig(code, secret, token);
+    return new LineConfig(code, secret, token, config.GetValue<bool>("Product:PhaseTwo"));
 });
 builder.Services.AddSingleton<LineService>();
+builder.Services.AddSingleton<LineHouseholdStore>();
 builder.Services.AddHostedService<ExpiryWorker>();
 var app = builder.Build();
 var phaseTwo = app.Configuration.GetValue<bool>("Product:PhaseTwo");
@@ -61,8 +62,7 @@ app.MapPost("/webhook/line", async (HttpContext context, LineService line) =>
     {
         using var doc = JsonDocument.Parse(body);
         if (!doc.RootElement.TryGetProperty("events", out var events) || events.ValueKind != JsonValueKind.Array) return Results.BadRequest();
-        if (!phaseTwo)
-            foreach (var item in events.EnumerateArray()) await line.Handle(item);
+        foreach (var item in events.EnumerateArray()) await line.Handle(item, context.RequestAborted);
         return Results.Ok();
     }
     catch (JsonException) { return Results.BadRequest(); }
