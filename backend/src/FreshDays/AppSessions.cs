@@ -76,8 +76,11 @@ internal sealed class AppSessions(NpgsqlDataSource source, TimeProvider clock)
         await using var command = source.CreateCommand("DELETE FROM app_sessions WHERE token_hash = @hash");
         command.Parameters.AddWithValue("hash", Hash(context.Request.Cookies[CookieName]!));
         await command.ExecuteNonQueryAsync(context.RequestAborted);
-        context.Response.Cookies.Delete(CookieName, CookieOptions());
+        ClearCookie(context);
     }
+
+    public static void ClearCookie(HttpContext context) =>
+        context.Response.Cookies.Delete(CookieName, CookieOptions());
 
     private static byte[] Hash(string token) => SHA256.HashData(Encoding.UTF8.GetBytes(token));
 

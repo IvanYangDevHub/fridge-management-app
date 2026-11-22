@@ -313,6 +313,42 @@ public partial class LineServiceTests
         Assert.Single(recorder.Calls, call => call.Endpoint == "push");
     }
 
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task DeletionRevokesLineBindingAndOutstandingChallenges(bool account)
+    {
+        await using var database = new PostgresTestDatabase();
+        await database.Initialize();
+        using var recorder = new Recorder();
+        await using var phaseOne = database.CreateFactory(recorder);
+        using var google = new GoogleTestIdentityProvider();
+        await using var phaseTwo = google.Configure(phaseOne);
+        using var owner = await SignIn(phaseTwo, google, "owner");
+        using var member = await SignIn(phaseTwo, google, "member");
+        using var browser = phaseTwo.CreateClient();
+        var household = await CreateHousehold(owner, "Home");
+        await Admit(owner, member, household);
+        var now = TodayAtTen();
+        var expiresAt = DateOnly.FromDateTime(now.DateTime).AddDays(1).ToString("yyyy-MM-dd");
+        (await owner.PostAsJsonAsync(household + "/inventory", new { name = "豆腐", expiresAt })).EnsureSuccessStatusCode();
+        await SendWebhook(browser, await BindingCommand(member, household));
+        var outstanding = await BindingCommand(member, household);
+        await SendWebhook(browser, "到期");
+        Assert.Contains("豆腐", recorder.Calls[^1].Text);
+
+        var path = account ? "/api/auth/account" : household;
+        using var deleted = await (account ? member : owner).DeleteAsync(path + "?confirm=true");
+        Assert.Equal(HttpStatusCode.NoContent, deleted.StatusCode);
+        await SendWebhook(browser, outstanding, "U2");
+        Assert.Contains("失效", recorder.Calls[^1].Text);
+        await SendWebhook(browser, "到期");
+        Assert.Contains("重新綁定", recorder.Calls[^1].Text);
+        Assert.DoesNotContain("豆腐", recorder.Calls[^1].Text);
+        await phaseTwo.Services.GetRequiredService<LineService>().PushDue(now);
+        Assert.DoesNotContain(recorder.Calls, call => call.Endpoint == "push");
+    }
+
     private static async Task Admit(HttpClient owner, HttpClient member, string household)
     {
         using var invite = await owner.PostAsJsonAsync(household + "/invitations", new { email = "member@gmail.com" });

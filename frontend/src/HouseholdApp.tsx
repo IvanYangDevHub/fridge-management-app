@@ -83,8 +83,9 @@ export default function HouseholdApp({ preferredHouseholdId }: { preferredHouseh
     </section>
     {selected?.role === 'owner' &&
       <HouseholdInvitations key={'invitations-' + selected.id} householdId={selected.id} />}
-    {selected && <HouseholdMembership key={'members-' + selected.id} householdId={selected.id} role={selected.role}
-      onLeave={(id) => setHouseholds((current) => current.filter((household) => household.id !== id))}
+    {selected && <HouseholdMembership key={'members-' + selected.id}
+      householdId={selected.id} householdName={selected.name} role={selected.role}
+      onRemove={(id) => setHouseholds((current) => current.filter((household) => household.id !== id))}
       onTransfer={(id) => setHouseholds((current) => current.map((household) =>
         household.id === id ? { ...household, role: 'member' } : household))} />}
     {selected && <HouseholdLineBinding key={'line-' + selected.id} householdId={selected.id} householdName={selected.name} />}

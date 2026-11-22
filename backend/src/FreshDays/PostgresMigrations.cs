@@ -24,6 +24,7 @@ public static class PostgresMigrations
         await ApplyVersion(connection, transaction, 2, IdentitySchema);
         await ApplyVersion(connection, transaction, 3, InvitationSchema);
         await ApplyVersion(connection, transaction, 4, LineHouseholdSchema);
+        await ApplyVersion(connection, transaction, 5, AttributionIndexes);
     }
 
     private static async Task ApplyVersion(NpgsqlConnection connection, NpgsqlTransaction transaction, int version, string sql)
@@ -129,6 +130,13 @@ public static class PostgresMigrations
             revoked_at TIMESTAMPTZ
         );
         CREATE INDEX household_invitations_household ON household_invitations(household_id, expires_at, id);
+        """;
+
+    private const string AttributionIndexes = """
+        CREATE INDEX inventory_created_by ON inventory_items USING hash (lower(extra->>'createdBy'))
+            WHERE extra->>'createdBy' IS NOT NULL;
+        CREATE INDEX shopping_created_by ON shopping_items USING hash (lower(extra->>'createdBy'))
+            WHERE extra->>'createdBy' IS NOT NULL;
         """;
 
     private const string LineHouseholdSchema = """

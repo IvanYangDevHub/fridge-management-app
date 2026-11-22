@@ -9,17 +9,19 @@ type MembershipChange = {
   onSuccess: () => void;
 };
 
-export default function HouseholdMembership({ householdId, role, onLeave, onTransfer }: {
+export default function HouseholdMembership({ householdId, householdName, role, onRemove, onTransfer }: {
   householdId: string;
+  householdName: string;
   role: Member['role'];
-  onLeave: (id: string) => void;
+  onRemove: (id: string) => void;
   onTransfer: (id: string) => void;
 }) {
   const [members, setMembers] = useState<Member[] | null>(null);
   const [confirmation, setConfirmation] = useState<MembershipChange | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
-  const path = '/api/households/' + householdId + '/members';
+  const householdPath = '/api/households/' + householdId;
+  const path = householdPath + '/members';
 
   async function loadMembers() {
     setBusy(true);
@@ -57,13 +59,22 @@ export default function HouseholdMembership({ householdId, role, onLeave, onTran
 
   return <section className="panel" aria-label="家庭成員">
     {role === 'owner'
-      ? <button className="secondary" disabled={busy} onClick={() => void loadMembers()}>管理家庭成員</button>
+      ? <div className="item-actions">
+        <button className="secondary" disabled={busy} onClick={() => void loadMembers()}>管理家庭成員</button>
+        <button className="secondary" disabled={busy} onClick={() => choose({
+          path: householdPath + '?confirm=true',
+          method: 'DELETE',
+          label: '刪除家庭',
+          prompt: '刪除「' + householdName + '」會移除線上家庭資料及所有成員的存取權。資料在受管資料庫的備份保留期內仍可能留在備份中。',
+          onSuccess: () => onRemove(householdId),
+        })}>刪除家庭</button>
+      </div>
       : <button className="secondary" disabled={busy} onClick={() => choose({
         path: path + '/me',
         method: 'DELETE',
         label: '退出家庭',
         prompt: '退出後將失去此家庭的存取權，已新增的食材與採買項目會保留。',
-        onSuccess: () => onLeave(householdId),
+        onSuccess: () => onRemove(householdId),
       })}>退出家庭</button>}
     {role === 'owner' && members !== null && <ul>
       {members.map((member) => <li className="item" key={member.userId}>

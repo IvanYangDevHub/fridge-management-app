@@ -66,6 +66,7 @@ function GoogleSignIn({ clientId, initialSession }: { clientId: string; initialS
   const [householdVersion, setHouseholdVersion] = useState(0);
   const [message, setMessage] = useState('');
   const [busy, setBusy] = useState(false);
+  const [confirmAccountDeletion, setConfirmAccountDeletion] = useState(false);
 
   const signIn = useCallback(async (credential: string) => {
     setBusy(true);
@@ -84,14 +85,39 @@ function GoogleSignIn({ clientId, initialSession }: { clientId: string; initialS
     }
   }, []);
 
+  function clearSession() {
+    setSession(null);
+    setPreferredHouseholdId('');
+    setConfirmAccountDeletion(false);
+  }
+
+  async function deleteAccount() {
+    setBusy(true);
+    setMessage('');
+    try {
+      const response = await fetch('/api/auth/account?confirm=true', { method: 'DELETE' });
+      if (response.status === 409) {
+        setConfirmAccountDeletion(false);
+        setMessage('請先轉移擁有權或刪除你擁有的所有家庭。');
+        return;
+      }
+      if (response.status !== 401) checked(response);
+      clearSession();
+      setMessage(response.status === 401 ? '登入已過期，請重新登入。' : '已刪除鮮日子帳號。');
+    } catch {
+      setMessage('無法刪除個人帳號，請再試一次。');
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function signOut() {
     setBusy(true);
     setMessage('');
     try {
       const response = await fetch('/api/auth/logout', { method: 'POST' });
       if (response.status !== 401) checked(response);
-      setSession(null);
-      setPreferredHouseholdId('');
+      clearSession();
     } catch {
       setMessage('登出失敗，請再試一次。');
     } finally {
@@ -127,7 +153,7 @@ function GoogleSignIn({ clientId, initialSession }: { clientId: string; initialS
     try {
       const response = await fetch('/api/households/legacy/claim', { method: 'POST' });
       if (response.status === 401) {
-        setSession(null);
+        clearSession();
         setMessage('登入已過期，請重新登入。');
         return;
       }
@@ -160,7 +186,21 @@ function GoogleSignIn({ clientId, initialSession }: { clientId: string; initialS
           {session.canClaimLegacy &&
             <button className="primary" disabled={busy} onClick={() => void claim(session)}>認領舊家庭</button>}
           <button className="secondary" disabled={busy} onClick={() => void signOut()}>登出</button>
-        </div></>}
+          <button className="secondary" disabled={busy} onClick={() => {
+            setMessage('');
+            setConfirmAccountDeletion(true);
+          }}>刪除個人帳號</button>
+        </div>
+        {confirmAccountDeletion && <div>
+          <p>刪除後會登出所有裝置、退出家庭並解除 LINE 綁定。家庭的共用清單會保留，你的署名將移除。</p>
+          <div className="item-actions">
+            <button className="primary" disabled={busy} onClick={() => void deleteAccount()}>確認刪除個人帳號</button>
+            <button className="secondary" disabled={busy} onClick={() => {
+              setMessage('');
+              setConfirmAccountDeletion(false);
+            }}>取消</button>
+          </div>
+        </div>}</>}
       <p role="status">{message}</p>
     </section>
     {session && <HouseholdApp key={`${session.userId}:${householdVersion}`} preferredHouseholdId={preferredHouseholdId} />}

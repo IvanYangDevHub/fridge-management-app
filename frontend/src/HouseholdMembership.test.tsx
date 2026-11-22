@@ -98,3 +98,43 @@ test('an owner manages the household roster, confirms removal, and loses owner c
   expect(screen.getByLabelText('目前家庭')).toHaveValue('home');
   expect(fetcher).toHaveBeenCalledWith(path + '/successor/transfer', { method: 'POST' });
 });
+
+
+test('only owners can confirm household deletion after seeing the backup notice', async () => {
+  let fails = true;
+  const fetcher = vi.fn(async (path: string) => {
+    switch (path) {
+      case '/api/households': return json([home, other]);
+      case '/api/households/home/inventory':
+      case '/api/households/home/shopping':
+      case '/api/households/other/inventory':
+      case '/api/households/other/shopping': return json([]);
+      case '/api/households/other?confirm=true': {
+        const response = status(fails ? 503 : 204);
+        fails = false;
+        return response;
+      }
+      default: throw new Error(path);
+    }
+  });
+  vi.stubGlobal('fetch', fetcher);
+  const user = userEvent.setup();
+  render(<HouseholdApp preferredHouseholdId="home" />);
+
+  const picker = await screen.findByLabelText('目前家庭');
+  expect(screen.queryByRole('button', { name: '刪除家庭' })).not.toBeInTheDocument();
+  await user.selectOptions(picker, 'other');
+  const remove = screen.getByRole('button', { name: '刪除家庭' });
+  await user.click(remove);
+  expect(screen.getByText(/備份保留期/)).toBeInTheDocument();
+  await user.click(screen.getByRole('button', { name: '取消' }));
+  expect(fetcher).not.toHaveBeenCalledWith('/api/households/other?confirm=true', expect.anything());
+  await user.click(remove);
+  await user.click(screen.getByRole('button', { name: '確認刪除家庭' }));
+  expect(await screen.findByRole('alert')).toHaveTextContent('無法刪除家庭，請再試一次。');
+  await user.click(screen.getByRole('button', { name: '確認刪除家庭' }));
+
+  expect(picker).toHaveValue('home');
+  expect(screen.queryByRole('option', { name: '台北家' })).not.toBeInTheDocument();
+  expect(fetcher).toHaveBeenCalledWith('/api/households/other?confirm=true', { method: 'DELETE' });
+});

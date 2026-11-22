@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Mvc;
+using Npgsql;
 
 namespace FreshDays;
 
@@ -54,6 +55,17 @@ internal static class AuthEndpoints
         routes.MapPost("/logout", async (HttpContext context, AppSessions sessions) =>
         {
             await sessions.End(context);
+            return Results.NoContent();
+        }).RequireAuthorization();
+
+        routes.MapDelete("/account", async (bool? confirm, HttpContext context, NpgsqlDataSource source) =>
+        {
+            if (confirm != true)
+                return Results.BadRequest();
+            if (!await AccountDeletion.Delete(source, AppSessions.UserId(context.User), context.RequestAborted))
+                return Results.Conflict();
+
+            AppSessions.ClearCookie(context);
             return Results.NoContent();
         }).RequireAuthorization();
 

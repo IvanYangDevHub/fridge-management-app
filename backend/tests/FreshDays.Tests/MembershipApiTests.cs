@@ -6,7 +6,7 @@ using Xunit;
 
 namespace FreshDays.Tests;
 
-public sealed class MembershipApiTests
+public sealed partial class MembershipApiTests
 {
     [Fact]
     public async Task LeavingRevokesHouseholdAccessInEveryActiveSessionAndPreservesLists()
@@ -178,6 +178,15 @@ public sealed class MembershipApiTests
             var phaseOne = database.CreateFactory();
             var google = new GoogleTestIdentityProvider();
             return new(database, phaseOne, google.Configure(phaseOne), google);
+        }
+
+        public string ConnectionString => database.IsolatedConnectionString;
+
+        public HttpClient LegacyBrowser()
+        {
+            var browser = phaseOne.CreateClient();
+            browser.DefaultRequestHeaders.Add("x-household-code", "test-code");
+            return browser;
         }
 
         public HttpClient Browser() =>

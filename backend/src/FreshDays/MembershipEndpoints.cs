@@ -47,7 +47,7 @@ internal static class MembershipEndpoints
             }));
     }
 
-    private static async Task<IResult> ChangeMembership(Guid householdId, HttpContext context, NpgsqlDataSource source,
+    internal static async Task<IResult> ChangeMembership(Guid householdId, HttpContext context, NpgsqlDataSource source,
         Func<NpgsqlTransaction, Guid, string, CancellationToken, Task<IResult>> change)
     {
         var ct = context.RequestAborted;

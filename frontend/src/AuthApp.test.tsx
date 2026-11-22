@@ -83,3 +83,42 @@ test('a returning account without claim permission can sign out', async () => {
   expect(screen.getByRole('button', { name: '登出' })).toBeInTheDocument();
   expect(screen.queryByRole('button', { name: '認領舊家庭' })).not.toBeInTheDocument();
 });
+
+
+test.each([
+  [204, '已刪除鮮日子帳號。'],
+  [401, '登入已過期，請重新登入。'],
+] as const)('account deletion confirms, handles ownership and failed requests, and clears the session on %s', async (outcome, message) => {
+  installGoogle();
+  const attempts = [409, 503, outcome];
+  const fetcher = vi.fn(async (path: string) => {
+    switch (path) {
+      case '/api/auth/config': return json(phaseTwo);
+      case '/api/auth/session': return json(signedIn);
+      case '/api/households': return json([]);
+      case '/api/auth/account?confirm=true': return response(attempts.shift()!);
+      default: throw new Error(path);
+    }
+  });
+  vi.stubGlobal('fetch', fetcher);
+  const user = userEvent.setup();
+  render(<AuthApp />);
+
+  const remove = await screen.findByRole('button', { name: '刪除個人帳號' });
+  await user.click(remove);
+  expect(screen.getByText(/共用清單.*保留/)).toBeInTheDocument();
+  await user.click(screen.getByRole('button', { name: '取消' }));
+  expect(fetcher).not.toHaveBeenCalledWith('/api/auth/account?confirm=true', expect.anything());
+  await user.click(remove);
+  await user.click(screen.getByRole('button', { name: '確認刪除個人帳號' }));
+  expect(await screen.findByText('請先轉移擁有權或刪除你擁有的所有家庭。')).toBeInTheDocument();
+  await user.click(remove);
+  await user.click(screen.getByRole('button', { name: '確認刪除個人帳號' }));
+  expect(await screen.findByText('無法刪除個人帳號，請再試一次。')).toBeInTheDocument();
+  await user.click(screen.getByRole('button', { name: '確認刪除個人帳號' }));
+
+  expect(await screen.findByRole('button', { name: '使用 Google 登入' })).toBeInTheDocument();
+  expect(screen.getByText(message)).toBeInTheDocument();
+  expect(screen.queryByText('owner@gmail.com')).not.toBeInTheDocument();
+  expect(fetcher).toHaveBeenCalledWith('/api/auth/account?confirm=true', { method: 'DELETE' });
+});

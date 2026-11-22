@@ -1,4 +1,5 @@
 using Microsoft.AspNetCore.Mvc;
+using Npgsql;
 
 namespace FreshDays;
 
@@ -17,6 +18,20 @@ internal static class HouseholdEndpoints
         });
 
         routes.MapHouseholdMembership();
+        routes.MapDelete("/{householdId:guid}", (Guid householdId, bool? confirm, HttpContext context, NpgsqlDataSource source) =>
+            MembershipEndpoints.ChangeMembership(householdId, context, source, async (transaction, _, role, ct) =>
+            {
+                if (role != "owner")
+                    return Results.Forbid();
+                if (confirm != true)
+                    return Results.BadRequest();
+
+                await using var command = new NpgsqlCommand("DELETE FROM households WHERE id = @household",
+                    transaction.Connection, transaction);
+                command.Parameters.AddWithValue("household", householdId);
+                await command.ExecuteNonQueryAsync(ct);
+                return Results.NoContent();
+            }));
 
         routes.MapGet("", async (HttpContext context, HouseholdStore store) =>
             Results.Ok(await store.List(AppSessions.UserId(context.User), context.RequestAborted)));
