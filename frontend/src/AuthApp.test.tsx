@@ -43,7 +43,11 @@ test('Google sign-in submits the credential and lets the eligible owner claim an
     .mockResolvedValueOnce(json(phaseTwo))
     .mockResolvedValueOnce(response(401))
     .mockResolvedValueOnce(json(signedIn))
+    .mockResolvedValueOnce(json([]))
     .mockResolvedValueOnce(json({ householdId: 'legacy-id' }, 201))
+    .mockResolvedValueOnce(json([{ id: 'legacy-id', name: '舊家庭', role: 'owner' }]))
+    .mockResolvedValueOnce(json([]))
+    .mockResolvedValueOnce(json([]))
     .mockResolvedValueOnce(response(204));
   vi.stubGlobal('fetch', fetcher);
   render(<AuthApp />);
@@ -61,6 +65,8 @@ test('Google sign-in submits the credential and lets the eligible owner claim an
   expect(await screen.findByText('已認領舊家庭。')).toBeInTheDocument();
   expect(screen.queryByRole('button', { name: '認領舊家庭' })).not.toBeInTheDocument();
   expect(fetcher).toHaveBeenCalledWith('/api/households/legacy/claim', { method: 'POST' });
+  expect(await screen.findByLabelText('目前家庭')).toHaveValue('legacy-id');
+  expect(await screen.findByRole('heading', { name: '冰箱庫存' })).toBeInTheDocument();
 
   await user.click(screen.getByRole('button', { name: '登出' }));
   expect(await screen.findByRole('button', { name: '使用 Google 登入' })).toBeInTheDocument();
@@ -70,7 +76,8 @@ test('Google sign-in submits the credential and lets the eligible owner claim an
 test('a returning account without claim permission can sign out', async () => {
   vi.stubGlobal('fetch', vi.fn()
     .mockResolvedValueOnce(json(phaseTwo))
-    .mockResolvedValueOnce(json({ ...signedIn, canClaimLegacy: false })));
+    .mockResolvedValueOnce(json({ ...signedIn, canClaimLegacy: false }))
+    .mockResolvedValueOnce(json([])));
   render(<AuthApp />);
   expect(await screen.findByText('owner@gmail.com')).toBeInTheDocument();
   expect(screen.getByRole('button', { name: '登出' })).toBeInTheDocument();

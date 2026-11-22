@@ -1,8 +1,7 @@
 import { useEffect, useMemo, useState, type FormEvent } from 'react';
+import { readInventory, saveInventory, type FoodItem, type Location } from './inventoryApi';
+import { readShopping, saveShopping, type ShoppingItem } from './shoppingApi';
 
-type Location = 'fridge' | 'freezer' | 'pantry';
-type FoodItem = { id: string; name: string; quantity: number; unit: string; location: Location; category: string; expiresAt: string | null; createdAt: string; status: 'active' | 'consumed' };
-type ShoppingItem = { id: string; name: string; completed: boolean };
 type Filter = 'all' | Location;
 
 const locationNames: Record<Location, string> = { fridge: '冷藏', freezer: '冷凍', pantry: '常溫' };
@@ -24,23 +23,21 @@ function expiry(item: FoodItem) {
   return { label: '正常', rank: 3, className: '' };
 }
 
-async function api<T>(path: string, code: string, method = 'GET', data?: unknown): Promise<T> {
-  const response = await fetch(`/api/${path}`, {
-    method,
-    headers: { 'x-household-code': code, ...(data ? { 'content-type': 'application/json' } : {}) },
-    ...(data ? { body: JSON.stringify(data) } : {}),
-  });
-  if (!response.ok) throw new Error(response.status === 401 ? '配對碼不正確' : `伺服器錯誤 ${response.status}`);
-  return response.status === 204 ? undefined as T : response.json() as Promise<T>;
+export default function App() {
+  return <FridgeLists />;
 }
 
-export default function App() {
-  const [code, setCode] = useState(() => sessionStorage.getItem('fresh-days-household-code') || '');
+export function HouseholdLists({ householdId }: { householdId: string }) {
+  return <FridgeLists householdId={householdId} />;
+}
+
+function FridgeLists({ householdId }: { householdId?: string }) {
+  const [code, setCode] = useState(() => householdId ? '' : sessionStorage.getItem('fresh-days-household-code') || '');
   const [codeInput, setCodeInput] = useState(code);
   const [items, setItems] = useState<FoodItem[]>([]);
   const [shopping, setShopping] = useState<ShoppingItem[]>([]);
   const [connected, setConnected] = useState(false);
-  const [message, setMessage] = useState('');
+  const [message, setMessage] = useState(householdId ? '正在載入清單…' : '');
   const [filter, setFilter] = useState<Filter>('all');
   const [name, setName] = useState('');
   const [quantity, setQuantity] = useState(1);
@@ -50,20 +47,39 @@ export default function App() {
   const [expiresAt, setExpiresAt] = useState('');
 
   useEffect(() => {
-    if (!code) return;
-    let active = true;
-    Promise.all([api<FoodItem[]>('inventory', code), api<ShoppingItem[]>('shopping', code)])
-      .then(([food, list]) => { if (active) { setItems(food); setShopping(list); setConnected(true); setMessage('已連線到家庭冰箱'); } })
-      .catch((error: Error) => { if (active) { setConnected(false); setMessage(error.message); } });
-    return () => { active = false; };
-  }, [code]);
+    if (!code && !householdId) return;
+    const controller = new AbortController();
+    const scope = { householdId, code };
+    Promise.all([readInventory(scope, controller.signal), readShopping(scope, controller.signal)])
+      .then(([food, list]) => {
+        if (!controller.signal.aborted) {
+          setItems(food);
+          setShopping(list);
+          setConnected(true);
+          setMessage('已連線到家庭冰箱');
+        }
+      })
+      .catch((error: Error) => {
+        if (!controller.signal.aborted) {
+          setConnected(false);
+          setMessage(error.message);
+        }
+      });
+    return () => controller.abort();
+  }, [code, householdId]);
 
   async function updateItems(next: FoodItem[]) {
-    try { await api('inventory', code, 'PUT', next); setItems(next); setMessage('庫存已儲存'); }
+    try {
+      setItems(await saveInventory({ householdId, code }, items, next));
+      setMessage('庫存已儲存');
+    }
     catch (error) { setMessage((error as Error).message); }
   }
   async function updateShopping(next: ShoppingItem[]) {
-    try { await api('shopping', code, 'PUT', next); setShopping(next); setMessage('採買清單已儲存'); }
+    try {
+      setShopping(await saveShopping({ householdId, code }, shopping, next));
+      setMessage('採買清單已儲存');
+    }
     catch (error) { setMessage((error as Error).message); }
   }
   function connect(event: FormEvent) {
@@ -94,14 +110,7 @@ export default function App() {
   const recipe = recipeItems.length ? (activeItems.some((item) => item.name.includes('蛋')) && activeItems.some((item) => item.category === 'vegetable') ? { title: '快手蔬菜烘蛋', missing: ['鹽', '食用油'] } : activeItems.some((item) => item.category === 'dairy') ? { title: '鮮奶食材濃湯', missing: ['洋蔥', '鹽'] } : { title: '冰箱清爽快炒', missing: ['蒜頭', '食用油'] }) : null;
   const missing = recipe?.missing.filter((ingredient) => !activeItems.some((item) => item.name === ingredient)) || [];
 
-  return <main className="app-shell">
-    <header className="hero"><div><p className="eyebrow">SMART FRIDGE</p><h1>鮮日子</h1><p className="muted">把冰箱裡的每一份新鮮，好好記下來。</p></div><span className="muted">{localDate()}</span></header>
-    <section className="panel"><div className="section-heading"><div><p className="eyebrow">FAMILY FRIDGE</p><h2>連線家庭冰箱</h2></div></div>
-      <form onSubmit={connect} className="form-grid"><label className="full">家庭配對碼<input type="password" value={codeInput} onChange={(event) => setCodeInput(event.target.value)} required autoComplete="off" /></label><button className="primary" type="submit">連線</button></form>
-      <p role="status" className={connected ? 'success' : 'error'}>{message}</p>
-      <small>家人在 LINE 傳送「訂閱 配對碼」即可收到每日到期通知。</small>
-    </section>
-    {connected && <>
+  const contents = connected && <>
       <section className="summary"><article>目前食材<strong>{activeItems.length}</strong></article><article>需優先處理<strong>{urgent.length}</strong></article></section>
       <section className="panel"><div className="section-heading"><div><p className="eyebrow">ADD ITEM</p><h2>加入食材</h2></div></div>
         <form onSubmit={addFood} className="form-grid">
@@ -119,6 +128,18 @@ export default function App() {
       </section>
       <div className="two-columns"><section className="panel"><p className="eyebrow">COOK TONIGHT</p><h2>今晚吃什麼</h2>{recipe ? <><h3>{recipe.title}</h3><p>優先使用：{recipeItems.slice(0, 3).map((item) => item.name).join('、')}</p><p>缺少材料：{missing.join('、') || '無'}</p>{missing.length > 0 && <button className="secondary" onClick={() => void updateShopping([...shopping, ...missing.filter((ingredient) => !shopping.some((item) => item.name === ingredient)).map((ingredient) => ({ id: crypto.randomUUID(), name: ingredient, completed: false }))])}>加入採買清單</button>}</> : <p className="empty">加入食材後，這裡會出現料理建議。</p>}</section>
         <section className="panel"><p className="eyebrow">SHOPPING LIST</p><h2>採買清單</h2>{shopping.length ? <ul className="list">{shopping.map((item) => <li className="item" key={item.id}><label><input className="check" type="checkbox" checked={item.completed} onChange={() => void updateShopping(shopping.map((entry) => entry.id === item.id ? { ...entry, completed: !entry.completed } : entry))} />{item.name}</label><button className="secondary" onClick={() => void updateShopping(shopping.filter((entry) => entry.id !== item.id))}>移除</button></li>)}</ul> : <p className="empty">料理缺少的材料會出現在這裡。</p>}</section></div>
-    </>}
+  </>;
+
+  const feedback = <p role="status" className={connected ? 'success' : 'error'}>{message}</p>;
+  if (householdId) return <>{feedback}{contents}</>;
+
+  return <main className="app-shell">
+    <header className="hero"><div><p className="eyebrow">SMART FRIDGE</p><h1>鮮日子</h1><p className="muted">把冰箱裡的每一份新鮮，好好記下來。</p></div><span className="muted">{localDate()}</span></header>
+    <section className="panel"><div className="section-heading"><div><p className="eyebrow">FAMILY FRIDGE</p><h2>連線家庭冰箱</h2></div></div>
+      <form onSubmit={connect} className="form-grid"><label className="full">家庭配對碼<input type="password" value={codeInput} onChange={(event) => setCodeInput(event.target.value)} required autoComplete="off" /></label><button className="primary" type="submit">連線</button></form>
+      {feedback}
+      <small>家人在 LINE 傳送「訂閱 配對碼」即可收到每日到期通知。</small>
+    </section>
+    {contents}
   </main>;
 }

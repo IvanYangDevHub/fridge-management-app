@@ -88,6 +88,7 @@ test.each([
   vi.stubGlobal('fetch', vi.fn()
     .mockResolvedValueOnce(json(phaseTwo))
     .mockResolvedValueOnce(json(owner))
+    .mockResolvedValueOnce(json([]))
     .mockResolvedValueOnce(response(status)));
   render(<AuthApp />);
   await userEvent.click(await screen.findByRole('button', { name: '認領舊家庭' }));
@@ -100,6 +101,7 @@ test('logout can retry after a service failure and clears an already expired ses
   vi.stubGlobal('fetch', vi.fn()
     .mockResolvedValueOnce(json(phaseTwo))
     .mockResolvedValueOnce(json(owner))
+    .mockResolvedValueOnce(json([]))
     .mockResolvedValueOnce(response(503))
     .mockResolvedValueOnce(response(401)));
   render(<AuthApp />);

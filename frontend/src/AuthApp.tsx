@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import LegacyApp from './App';
+import HouseholdApp from './HouseholdApp';
 
 export type Session = { userId: string; email: string; canClaimLegacy: boolean };
 type Product = { mode: 'phase-one' } | { mode: 'phase-two'; googleClientId: string };
@@ -60,6 +61,7 @@ export default function AuthApp() {
 
 function GoogleSignIn({ clientId, initialSession }: { clientId: string; initialSession: Session | null }) {
   const [session, setSession] = useState(initialSession);
+  const [householdVersion, setHouseholdVersion] = useState(0);
   const [message, setMessage] = useState('');
   const [busy, setBusy] = useState(false);
 
@@ -112,6 +114,7 @@ function GoogleSignIn({ clientId, initialSession }: { clientId: string; initialS
       checked(response);
       setSession({ ...current, canClaimLegacy: false });
       setMessage('已認領舊家庭。');
+      setHouseholdVersion((version) => version + 1);
     } catch {
       setMessage('無法認領舊家庭，請再試一次。');
     } finally {
@@ -131,6 +134,7 @@ function GoogleSignIn({ clientId, initialSession }: { clientId: string; initialS
         </div></>}
       <p role="status">{message}</p>
     </section>
+    {session && <HouseholdApp key={`${session.userId}:${householdVersion}`} />}
   </main>;
 }
 
