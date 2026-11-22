@@ -1,0 +1,90 @@
+name: Phase two release
+
+on:
+  pull_request:
+  push:
+    branches: [main, integration/spec-6-postgresql]
+
+permissions:
+  contents: read
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_DB: freshdays_test
+          POSTGRES_USER: freshdays_test
+          POSTGRES_PASSWORD: freshdays_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U freshdays_test -d freshdays_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      FRESHDAYS_TEST_POSTGRES: Host=127.0.0.1;Port=5432;Database=freshdays_test;Username=freshdays_test;Password=freshdays_test
+      Logging__LogLevel__Default: Error
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Check phase-two Compose configuration
+        env:
+          Product__PhaseTwo: 'true'
+        run: |
+          docker compose --env-file .env.example config --format json |
+            jq -e '.services.backend.environment.Product__PhaseTwo == "true"'
+      - name: Run PostgreSQL, API and workload tests
+        run: |
+          mkdir -p TestResults
+          dotnet test backend/tests/FreshDays.Tests --collect 'XPlat Code Coverage' \
+            --results-directory TestResults --logger 'trx;LogFileName=backend.trx' \
+            --logger 'console;verbosity=detailed' -- \
+            DataCollectionRunSettings.DataCollectors.DataCollector.Configuration.Format=json \
+            | tee TestResults/backend.txt
+      - name: Run Vitest and build the production site
+        run: |
+          npm --prefix frontend ci
+          npm --prefix frontend run test:coverage -- --coverage.reporter=lcov | tee TestResults/frontend.txt
+          npm --prefix frontend run build
+      - name: Enforce changed production line and branch coverage
+        env:
+          PR_BASE: ${{ github.event.pull_request.base.sha }}
+          PUSH_BASE: ${{ github.event.before }}
+        run: |
+          python -m unittest discover -s scripts -p test_release_coverage.py
+          base=origin/main
+          if [[ "$GITHUB_EVENT_NAME" == pull_request ]]; then
+            base="$PR_BASE"
+          elif [[ "$GITHUB_REF" == refs/heads/main ]]; then
+            base="$PUSH_BASE"
+          fi
+          report=$(find TestResults -type f -name coverage.json -print -quit)
+          test -n "$report"
+          python scripts/release_coverage.py --base "$base" --coverlet "$report" \
+            --lcov frontend/coverage/lcov.info | tee TestResults/changed-coverage.txt "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: phase-two-release-evidence
+          path: |
+            TestResults/
+            frontend/coverage/lcov.info

@@ -15,10 +15,12 @@ internal sealed class PostgresTestDatabase : IAsyncDisposable
 
     private readonly NpgsqlDataSource administrator = NpgsqlDataSource.Create(ConnectionString);
 
-    public string IsolatedConnectionString => new NpgsqlConnectionStringBuilder(ConnectionString)
+    public string IsolatedConnectionString => SchemaConnectionString(pooling: false);
+
+    private string SchemaConnectionString(bool pooling) => new NpgsqlConnectionStringBuilder(ConnectionString)
     {
         SearchPath = schema,
-        Pooling = false,
+        Pooling = pooling,
     }.ConnectionString;
 
     public async Task Initialize()
@@ -27,12 +29,12 @@ internal sealed class PostgresTestDatabase : IAsyncDisposable
         await command.ExecuteNonQueryAsync();
     }
 
-    public WebApplicationFactory<Program> CreateFactory(HttpMessageHandler? lineClient = null) =>
+    public WebApplicationFactory<Program> CreateFactory(HttpMessageHandler? lineClient = null, bool pooling = false) =>
         new WebApplicationFactory<Program>().WithWebHostBuilder(builder =>
             builder.ConfigureAppConfiguration((_, config) =>
                 config.AddInMemoryCollection(new Dictionary<string, string?>
                 {
-                    ["ConnectionStrings:FreshDays"] = IsolatedConnectionString,
+                    ["ConnectionStrings:FreshDays"] = SchemaConnectionString(pooling),
                     ["HouseholdCode"] = "test-code",
                     ["Line:ChannelSecret"] = "secret",
                     ["Line:AccessToken"] = "token",

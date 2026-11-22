@@ -59,6 +59,39 @@ public class PostgresApiTests
     }
 
     [Fact]
+    public async Task MalformedOversizedAndInvalidInventoryListsCannotReplacePhaseOneData()
+    {
+        await using var database = new PostgresTestDatabase();
+        await database.Initialize();
+        await using var host = database.CreateFactory();
+        using var client = host.CreateClient();
+        client.DefaultRequestHeaders.Add("x-household-code", "test-code");
+        const string path = "/api/inventory";
+        using var original = new StringContent("""[{"id":"saved","name":"Milk","expiresAt":"2027-03-01"}]""");
+        using var seeded = await client.PutAsync(path, original);
+        Assert.Equal(HttpStatusCode.NoContent, seeded.StatusCode);
+
+        foreach (var invalid in new[]
+        {
+            "[",
+            "{}",
+            JsonSerializer.Serialize(new object?[501]),
+            """[{"id":"new","name":"Milk","expiresAt":42}]""",
+            """[{"id":"new","name":"Milk","expiresAt":"2027-02-30"}]""",
+        })
+        {
+            using var body = new StringContent(invalid);
+            using var replacement = await client.PutAsync(path, body);
+            Assert.Equal(HttpStatusCode.BadRequest, replacement.StatusCode);
+        }
+        using var oversized = new StringContent(new string(' ', 1_048_577));
+        using var rejected = await client.PutAsync(path, oversized);
+        Assert.Equal(HttpStatusCode.RequestEntityTooLarge, rejected.StatusCode);
+        var saved = Assert.Single((await client.GetFromJsonAsync<JsonElement>(path)).EnumerateArray());
+        Assert.Equal("saved", saved.GetProperty("id").GetString());
+    }
+
+    [Fact]
     public async Task StartupRequiresPostgresConfiguration()
     {
         await using var database = new PostgresTestDatabase();

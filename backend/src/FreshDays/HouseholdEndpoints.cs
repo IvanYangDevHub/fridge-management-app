@@ -26,7 +26,7 @@ internal static class HouseholdEndpoints
                 if (confirm != true)
                     return Results.BadRequest();
 
-                await using var command = new NpgsqlCommand("DELETE FROM households WHERE id = @household",
+                using var command = new NpgsqlCommand("DELETE FROM households WHERE id = @household",
                     transaction.Connection, transaction);
                 command.Parameters.AddWithValue("household", householdId);
                 await command.ExecuteNonQueryAsync(ct);

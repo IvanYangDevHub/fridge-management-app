@@ -2,6 +2,8 @@
 
 本指南記錄單一家庭展示版的部署方案：一台 Ubuntu Droplet、Docker Compose、React 靜態網站、ASP.NET Core 後端與 DigitalOcean 受管 PostgreSQL。以下步驟適用於部署及驗收空資料庫。既有正式資料須完成搬遷與核對後才能切換流量。將下文的 `freshdays.example.com` 換成你擁有的網域或子網域。
 
+啟用 Google 登入、多家庭與 LINE 家庭綁定前，依[第二階段切換與驗收](docs/phase-two-release.md)完成演練。
+
 專案已包含 Dockerfile、`compose.yaml` 與 Caddy 設定。部署前仍須在本機驗證、準備主機與填入自己的網域及 LINE 憑證。
 
 ## 1. 準備專案部署設定

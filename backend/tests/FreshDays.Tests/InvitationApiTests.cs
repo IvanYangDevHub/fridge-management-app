@@ -24,6 +24,11 @@ public sealed class InvitationApiTests
         Assert.Equal(app.Clock.GetUtcNow().AddDays(7), invitation.GetProperty("expiresAt").GetDateTimeOffset());
         var token = invitation.GetProperty("token").GetString();
 
+        using var noToken = await invitee.PostAsJsonAsync(RedeemPath, new { token = (string?)null });
+        using var truncatedToken = await invitee.PostAsJsonAsync(RedeemPath, new { token = token![..^1] });
+        Assert.Equal(HttpStatusCode.BadRequest, noToken.StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest, truncatedToken.StatusCode);
+
         using var forwarded = await outsider.PostAsJsonAsync(RedeemPath, new { token });
         Assert.Equal(HttpStatusCode.NotFound, forwarded.StatusCode);
         Assert.Empty((await outsider.GetFromJsonAsync<JsonElement>("/api/households")).EnumerateArray());

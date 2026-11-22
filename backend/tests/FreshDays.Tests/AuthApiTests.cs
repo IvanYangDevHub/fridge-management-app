@@ -37,7 +37,15 @@ public class AuthApiTests
         Assert.Equal("phase-two", mode.GetProperty("mode").GetString());
         Assert.Equal("freshdays-test-client", mode.GetProperty("googleClientId").GetString());
         client.DefaultRequestHeaders.Add("x-household-code", "test-code");
-        Assert.Equal(HttpStatusCode.NotFound, (await client.GetAsync("/api/inventory")).StatusCode);
+        foreach (var path in new[] { "/api/inventory", "/api/shopping" })
+        {
+            using var read = await client.GetAsync(path);
+            using var put = await client.PutAsJsonAsync(path, Array.Empty<object>());
+            using var post = await client.PostAsJsonAsync(path, Array.Empty<object>());
+            Assert.Equal(HttpStatusCode.NotFound, read.StatusCode);
+            Assert.Equal(HttpStatusCode.NotFound, put.StatusCode);
+            Assert.Equal(HttpStatusCode.NotFound, post.StatusCode);
+        }
     }
 
 
